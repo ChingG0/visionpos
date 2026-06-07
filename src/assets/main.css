@@ -1,0 +1,120 @@
+/* =============================================
+   Global Reset & CSS Variables
+   ============================================= */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  /* ── Brand Colors ── */
+  --color-brand-red: #bf2820;
+
+  /* ── Background ── */
+  --color-bg-app:       #f4edd8;
+  --color-bg-sidebar:   #ece0c8;
+  --color-bg-map:       #f8f2e0;
+  --color-bg-panel:     #f8f2e0;
+  --color-bg-topbar:    #f4edd8;
+  --color-bg-card:      #ffffff;
+  --color-bg-nav-active:#e8a038;
+  --color-bg-settings:  #ddd0b8;
+  --color-bg-add-btn:   #ffffff;
+  --color-bg-today-strip: #ede2c5;
+  --color-bg-arrange-btn: #f4edd8;
+  --color-bg-status-pill: #fffbf0;
+  --color-bg-floor-tab-active: #ffffff;
+  --color-bg-map-btn:   #ffffff;
+
+  /* ── Border ── */
+  --color-border-base:  #cfbfa0;
+  --color-border-logo:  #a89070;
+  --color-border-card:  #ddd0b8;
+  --color-border-btn:   #b8a080;
+  --color-border-status-pill: #d8b850;
+
+  /* ── Text ── */
+  --color-text-primary:   #1a0800;
+  --color-text-secondary: #7a6850;
+  --color-text-muted:     #9a8868;
+  --color-text-nav-active:#3a1800;
+  --color-text-brand:     #5a4030;
+
+  /* ── Status Badge ── */
+  --color-badge-red-bg:    #c03020;
+  --color-badge-orange-bg: #c07810;
+  --color-badge-blue-bg:   #2860c0;
+  --color-badge-text:      #ffffff;
+
+  /* ── Table / Seat ── */
+  --color-table-body:      #d8cdb5;
+  --color-table-stroke:    #bfaf95;
+  --color-seat-empty:      #b0a890;
+  --color-seat-ordered:    #c87d10;
+  --color-seat-paid:       #358050;
+
+  /* ── Radius ── */
+  --radius-xs:  4px;
+  --radius-sm:  7px;
+  --radius-md:  10px;
+  --radius-lg:  14px;
+  --radius-xl:  22px;
+  --radius-full: 9999px;
+
+  /* ── Font ── */
+  --font-base: 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+
+  /* ── Font Size ── */
+  --fs-xs:   10px;
+  --fs-sm:   11px;
+  --fs-base: 12px;
+  --fs-md:   13px;
+  --fs-lg:   14px;
+  --fs-xl:   16px;
+
+  /* ── Sidebar ── */
+  --sidebar-width: 92px;
+
+  /* ── Reservation Panel ── */
+  --res-panel-width: 198px;
+
+  /* ── Today Strip ── */
+  --today-strip-width: 30px;
+
+  /* ── Topbar ── */
+  --topbar-height: 44px;
+}
+
+html,
+body {
+  height: 100%;
+  font-family: var(--font-base);
+  font-size: var(--fs-base);
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#app {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e0d5be;
+}
+
+button {
+  font-family: var(--font-base);
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+svg {
+  display: block;
+  flex-shrink: 0;
+}
