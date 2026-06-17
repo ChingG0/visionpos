@@ -12,7 +12,7 @@
 
       <!-- Header -->
       <div class="res-panel__header">
-        <button class="res-panel__add-btn" @click="emit('add')">新增訂位</button>
+        <button class="res-panel__add-btn" @click="showForm = true">新增訂位</button>
       </div>
 
       <!-- 選桌模式提示 -->
@@ -24,66 +24,49 @@
       <!-- Reservation List -->
       <div class="res-panel__list">
         <ReservationCard
-          v-for="item in reservations"
+          v-for="item in store.reservations"
           :key="item.id"
           :reservation="item"
-          @cancel="handleCancel"
-          @restore="handleRestore"
-          @arrange="handleArrange"
+          @cancel="store.cancelReservation($event)"
+          @restore="store.restoreReservation($event)"
+          @arrange="emit('request-arrange', $event)"
         />
       </div>
 
     </aside>
   </div>
+
+  <!-- 新增訂位表單 -->
+  <ReservationForm
+    v-if="showForm"
+    @close="showForm = false"
+    @submit="handleFormSubmit"
+  />
 </template>
 
 <script setup>
 import { ref } from 'vue'
 import ReservationCard from './ReservationCard.vue'
+import ReservationForm from './ReservationForm.vue'
+import { useReservationStore } from '@/stores/reservationStore.js'
 
 defineProps({
   arrangingId: { type: Number, default: null },
 })
 
-const emit = defineEmits(['add', 'request-arrange', 'cancel-arrange'])
+const emit = defineEmits(['request-arrange', 'cancel-arrange'])
 
-/* ── Reservations data（之後從 Supabase store 取得）── */
-const reservations = ref([
-  { id:1, name:'王小姐', phone:'0912345678', time:'18:00', timeLabel:'30分鐘後', urgency:'red',    guests:4, status:'waiting', seatedAt:null, assignedItemIds:[], assignedItemNames:[] },
-  { id:2, name:'陳小姐', phone:'0912345678', time:'18:30', timeLabel:'1小時後',  urgency:'orange', guests:2, status:'waiting', seatedAt:null, assignedItemIds:[], assignedItemNames:[] },
-  { id:3, name:'林先生', phone:'0912345678', time:'19:00', timeLabel:'1小時後',  urgency:'orange', guests:1, status:'waiting', seatedAt:null, assignedItemIds:[], assignedItemNames:[] },
-  { id:4, name:'陳先生', phone:'0912345678', time:'19:00', timeLabel:'1小時後',  urgency:'orange', guests:2, status:'waiting', seatedAt:null, assignedItemIds:[], assignedItemNames:[] },
-  { id:5, name:'孫先生', phone:'0912345678', time:'20:30', timeLabel:'2小時後',  urgency:'blue',   guests:2, status:'waiting', seatedAt:null, assignedItemIds:[], assignedItemNames:[] },
-  { id:6, name:'何先生', phone:'0912345678', time:'21:00', timeLabel:'2.5小時後',urgency:'blue',   guests:1, status:'waiting', seatedAt:null, assignedItemIds:[], assignedItemNames:[] },
-])
+const store   = useReservationStore()
+const showForm = ref(false)
 
-/* ── Handlers ── */
-function handleCancel(id) {
-  const r = reservations.value.find(r => r.id === id)
-  if (!r || r.status !== 'waiting') return
-  r.status = 'cancelled'
+function handleFormSubmit(data) {
+  store.addReservation(data)
+  showForm.value = false
 }
 
-function handleRestore(id) {
-  const r = reservations.value.find(r => r.id === id)
-  if (!r || r.status !== 'cancelled') return
-  r.status         = 'waiting'
-  r.seatedAt       = null
-  r.assignedItemIds = []
-}
-
-function handleArrange(id) {
-  emit('request-arrange', id)
-}
-
-/* ── 被 DineInView 呼叫（confirm 入座）── */
+/* 由 DineInView 呼叫 */
 function seatReservation(reservationId, itemIds, itemNames) {
-  const r = reservations.value.find(r => r.id === reservationId)
-  if (!r || r.status !== 'waiting') return
-  r.status            = 'seated'
-  r.seatedAt          = Date.now()
-  r.assignedItemIds   = itemIds
-  r.assignedItemNames = itemNames
+  store.seatReservation(reservationId, itemIds, itemNames)
 }
 
 defineExpose({ seatReservation })
@@ -160,7 +143,7 @@ defineExpose({ seatReservation })
 
 .res-panel__add-btn:hover { background: var(--color-bg-arrange-btn); }
 
-/* ── Arranging hint banner ── */
+/* ── Arranging hint ── */
 .res-panel__arranging-hint {
   padding: 6px 9px;
   background: #fff8e8;

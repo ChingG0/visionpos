@@ -30,6 +30,7 @@
 
     <!-- SVG Canvas -->
     <svg
+      v-if="!isLayoutLoading"
       ref="svgRef"
       class="floor-map__svg"
       viewBox="0 0 285 330"
@@ -169,6 +170,8 @@
       </g>
     </svg>
 
+    <div v-else class="floor-map__svg-loading">載入座位圖中...</div>
+
     <!-- Normal mode: single edit button -->
     <div v-if="!isEditing" class="floor-map__actions">
       <button class="floor-map__action-btn" @click="enterEditing">編輯桌位</button>
@@ -213,22 +216,23 @@
 
 <script setup>
 import { ref, computed, nextTick, watch, onMounted } from 'vue'
+import { supabase } from '@/lib/supabase.js'
 
-/* ── Storage（暫用 localStorage，之後換成 Supabase） ──
-   換成 Supabase 時只需修改 loadLayout / saveLayout 兩個函數 ── */
-const STORAGE_KEY = (floor) => `visionpos-floormap-${floor}`
-
-function loadLayout(floor) {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY(floor))
-    return raw ? JSON.parse(raw) : null
-  } catch {
-    return null
-  }
+async function loadLayout(floor) {
+  const { data, error } = await supabase
+    .from('floor_layouts')
+    .select('items')
+    .eq('floor_id', floor)
+    .maybeSingle()
+  if (error) { console.error('[FloorMap] 讀取座位圖失敗', error); return null }
+  return data?.items ?? null
 }
 
-function saveLayout(floor, items) {
-  localStorage.setItem(STORAGE_KEY(floor), JSON.stringify(items))
+async function saveLayout(floor, items) {
+  const { error } = await supabase
+    .from('floor_layouts')
+    .upsert({ floor_id: floor, items, updated_at: new Date().toISOString() })
+  if (error) console.error('[FloorMap] 儲存座位圖失敗', error)
 }
 
 const props = defineProps({
@@ -305,11 +309,12 @@ const editHint = computed(() => {
   return '點選桌椅進行編輯'
 })
 
-/* ── Floor items (初始資料，之後改從 Supabase store 取得) ── */
+/* ── Floor items ── */
 let _uid = 30
 const ACTIVE_FLOOR = '1F'   // 之後從 props/store 取得當前樓層
 
-const floorItems = ref([
+/* 預設座位圖：只在 Supabase 該樓層還沒有任何資料時（第一次使用）當起點 */
+const DEFAULT_FLOOR_ITEMS = [
   // Right column: 大桌 1 + 座位
   { id:1,  type:'square-table', x:212, y:75,  rotation:0, scaleX:1.2, scaleY:1.2, name:'1號桌', status:'paid' },
   { id:2,  type:'chair',        x:175, y:32,  rotation:0, scaleX:1, scaleY:1,   name:'A1',   status:'paid' },
@@ -337,17 +342,23 @@ const floorItems = ref([
   { id:20, type:'chair',        x:62,  y:278, rotation:0, scaleX:1, scaleY:1,   name:'C6',   status:'empty' },
   { id:21, type:'chair',        x:86,  y:278, rotation:0, scaleX:1, scaleY:1,   name:'C7',   status:'empty' },
   { id:22, type:'chair',        x:110, y:278, rotation:0, scaleX:1, scaleY:1,   name:'C8',   status:'empty' },
-])
+]
+
+const floorItems      = ref([])         // 先空陣列，避免畫面先閃出預設座位圖再跳成儲存版
+const isLayoutLoading = ref(true)       // 讀取 Supabase 座位圖中
 
 /* 頁面載入時讀取儲存的座位圖 */
-onMounted(() => {
-  const saved = loadLayout(ACTIVE_FLOOR)
+onMounted(async () => {
+  const saved = await loadLayout(ACTIVE_FLOOR)
   if (saved && saved.length > 0) {
     floorItems.value = saved
-    // 讓 _uid 跳過已存在的 id，避免衝突
     const maxId = Math.max(...saved.map(i => i.id), _uid)
     _uid = maxId + 1
+  } else {
+    /* Supabase 這個樓層還沒存過座位圖（第一次使用）→ 用預設座位圖當起點 */
+    floorItems.value = DEFAULT_FLOOR_ITEMS
   }
+  isLayoutLoading.value = false
 })
 
 /* ── Drag state ── */
@@ -394,13 +405,12 @@ function enterEditing() {
   selectedId.value = null
 }
 
-function finishEditing() {
-  isEditing.value  = false
+async function finishEditing() {
+  isEditing.value = false
   activeTool.value = null
   selectedId.value = null
-  drag.value       = null
-  // 儲存到 localStorage（之後換成 Supabase upsert）
-  saveLayout(ACTIVE_FLOOR, floorItems.value)
+  drag.value = null
+  await saveLayout(ACTIVE_FLOOR, floorItems.value)
   emit('finish-editing', [...floorItems.value])
 }
 
@@ -679,6 +689,15 @@ defineExpose({ markItemSeated })
   display: block;
   width: 100%;
   min-height: 0;
+}
+
+.floor-map__svg-loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  font-size: var(--fs-sm);
 }
 
 /* ── Normal mode: single action button ── */

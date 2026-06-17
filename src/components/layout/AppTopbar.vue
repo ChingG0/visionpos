@@ -1,8 +1,8 @@
 <template>
   <header class="topbar">
 
-    <!-- Floor Tabs -->
-    <div class="topbar__tabs">
+    <!-- Floor Tabs（內用頁用）或 Title（其他頁用） -->
+    <div v-if="showFloorTabs" class="topbar__tabs">
       <button
         v-for="floor in floors"
         :key="floor"
@@ -13,17 +13,17 @@
         {{ floor }}
       </button>
     </div>
+    <div v-else-if="title" class="topbar__title">{{ title }}</div>
+    <div v-else class="topbar__spacer" />
 
     <!-- Status Pill -->
     <div class="topbar__status-pill">
-      <!-- Print -->
       <svg class="topbar__status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="列印">
         <polyline points="6 9 6 2 18 2 18 9"/>
         <path d="M6 18H4a2 2 0 01-2-2V9h20v7a2 2 0 01-2 2h-2"/>
         <rect x="6" y="14" width="12" height="8"/>
       </svg>
 
-      <!-- WiFi -->
       <svg class="topbar__status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-label="WiFi">
         <path d="M1.5 8.5C4.5 5.5 8 4 12 4s7.5 1.5 10.5 4.5"/>
         <path d="M5 12c1.9-1.9 4.3-3 7-3s5.1 1.1 7 3"/>
@@ -31,7 +31,6 @@
         <circle cx="12" cy="19" r=".5" fill="currentColor"/>
       </svg>
 
-      <!-- Battery -->
       <svg class="topbar__status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-label="電池">
         <rect x="1" y="7" width="18" height="11" rx="2"/>
         <path d="M23 11v4"/>
@@ -48,17 +47,15 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 
 defineProps({
-  activeFloor: {
-    type: String,
-    default: '1F',
-  },
+  activeFloor:    { type: String,  default: '1F' },
+  showFloorTabs:  { type: Boolean, default: true },
+  title:          { type: String,  default: '' },
 })
 
 const emit = defineEmits(['floor-change'])
 
 const floors = ['1F', '2F']
 
-/* ── Live clock ── */
 const now = ref(new Date())
 let timer = null
 
@@ -94,7 +91,6 @@ const formattedDateTime = computed(() => {
   flex-shrink: 0;
 }
 
-/* Tabs */
 .topbar__tabs {
   display: flex;
   gap: 2px;
@@ -115,7 +111,16 @@ const formattedDateTime = computed(() => {
   color: var(--color-text-primary);
 }
 
-/* Status Pill */
+.topbar__title {
+  font-size: var(--fs-lg);
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.topbar__spacer {
+  flex: 1;
+}
+
 .topbar__status-pill {
   background: var(--color-bg-status-pill);
   border: 1px solid var(--color-border-status-pill);

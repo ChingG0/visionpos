@@ -29,7 +29,7 @@
     <div class="sidebar__spacer" />
 
     <!-- Settings -->
-    <button class="sidebar__settings">設定</button>
+    <button class="sidebar__settings" @click="router.push({ name: 'ProductManagement' })">後台設定</button>
 
   </aside>
 </template>
@@ -41,7 +41,6 @@ import { useRoute, useRouter } from 'vue-router'
 const route  = useRoute()
 const router = useRouter()
 
-/* active 狀態跟 route.name 同步，不再用獨立 ref */
 const activeNav = computed(() => route.name)
 
 function navigate(name) {
@@ -49,23 +48,28 @@ function navigate(name) {
 }
 
 /* ── Inline SVG icon components ── */
+
+/* 新訂單：服務罩蓋（cloche）圖示 */
+const IconNewOrder = defineComponent({
+  render: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
+    h('path', { d: 'M3 13a9 9 0 0118 0' }),
+    h('line', { x1: '2',  y1: '13', x2: '22', y2: '13' }),
+    h('line', { x1: '3',  y1: '17', x2: '21', y2: '17' }),
+    h('line', { x1: '12', y1: '3',  x2: '12', y2: '6'  }),
+    h('circle', { cx: '12', cy: '2.3', r: '0.9', fill: 'currentColor', stroke: 'none' }),
+  ])
+})
+
+/* 內用：刀叉圖示 */
 const IconDineIn = defineComponent({
   render: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
-    h('line', { x1: '8', y1: '2', x2: '8', y2: '22' }),
-    h('line', { x1: '16', y1: '2', x2: '16', y2: '22' }),
-    h('path', { d: 'M5 6h14M5 10a4 4 0 008 0' }),
+    h('path', { d: 'M6 2v8a2 2 0 002 2 2 2 0 002-2V2' }),
+    h('line', { x1: '8', y1: '12', x2: '8', y2: '22' }),
+    h('path', { d: 'M17 2c-2 2-3 5-3 8a3 3 0 003 3v9' }),
   ])
 })
 
-const IconTakeout = defineComponent({
-  render: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
-    h('path', { d: 'M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z' }),
-    h('line', { x1: '3', y1: '6', x2: '21', y2: '6' }),
-    h('path', { d: 'M16 10a4 4 0 01-8 0' }),
-  ])
-})
-
-/* 外送：機車圖示（修正原本錯誤的汽車圖示） */
+/* 外送：機車圖示 */
 const IconDelivery = defineComponent({
   render: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
     h('circle', { cx: '5.5', cy: '17.5', r: '2' }),
@@ -77,6 +81,7 @@ const IconDelivery = defineComponent({
   ])
 })
 
+/* 預約：日曆圖示 */
 const IconReservation = defineComponent({
   render: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
     h('rect', { x: '3', y: '4', width: '18', height: '18', rx: '2' }),
@@ -90,10 +95,10 @@ const IconReservation = defineComponent({
 
 /* id 要對應 router/index.js 裡的 route name */
 const navItems = [
-  { id: 'DineIn',      label: '內用', icon: IconDineIn },
-  { id: 'Takeout',     label: '外帶', icon: IconTakeout },
-  { id: 'Delivery',    label: '外送', icon: IconDelivery },
-  { id: 'Reservation', label: '預約', icon: IconReservation },
+  { id: 'NewOrder',    label: '新訂單', icon: IconNewOrder },
+  { id: 'DineIn',      label: '內用',   icon: IconDineIn },
+  { id: 'Delivery',    label: '外送',   icon: IconDelivery },
+  { id: 'Reservation', label: '預約',   icon: IconReservation },
 ]
 </script>
 
@@ -162,12 +167,12 @@ const navItems = [
 }
 
 .sidebar__settings {
-  width: 70px;
+  width: 78px;
   height: 30px;
   background: var(--color-bg-settings);
   border: 1px solid var(--color-border-btn);
   border-radius: var(--radius-sm);
-  font-size: var(--fs-base);
+  font-size: 11px;
   color: var(--color-text-brand);
 }
 
