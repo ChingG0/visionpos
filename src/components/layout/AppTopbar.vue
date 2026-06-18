@@ -18,23 +18,27 @@
 
     <!-- Status Pill -->
     <div class="topbar__status-pill">
-      <svg class="topbar__status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="列印">
+      <svg
+        class="topbar__status-icon"
+        :class="isPrinterOnline ? 'topbar__status-icon--ok' : 'topbar__status-icon--bad'"
+        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+        :aria-label="isPrinterOnline ? '出單機已連線' : '出單機未連線'"
+      >
         <polyline points="6 9 6 2 18 2 18 9"/>
         <path d="M6 18H4a2 2 0 01-2-2V9h20v7a2 2 0 01-2 2h-2"/>
         <rect x="6" y="14" width="12" height="8"/>
       </svg>
 
-      <svg class="topbar__status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-label="WiFi">
+      <svg
+        class="topbar__status-icon"
+        :class="isOnline ? 'topbar__status-icon--ok' : 'topbar__status-icon--bad'"
+        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+        :aria-label="isOnline ? 'WiFi 已連線' : 'WiFi 未連線'"
+      >
         <path d="M1.5 8.5C4.5 5.5 8 4 12 4s7.5 1.5 10.5 4.5"/>
         <path d="M5 12c1.9-1.9 4.3-3 7-3s5.1 1.1 7 3"/>
         <path d="M8.5 15.5c.9-.9 2.2-1.5 3.5-1.5s2.6.6 3.5 1.5"/>
         <circle cx="12" cy="19" r=".5" fill="currentColor"/>
-      </svg>
-
-      <svg class="topbar__status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-label="電池">
-        <rect x="1" y="7" width="18" height="11" rx="2"/>
-        <path d="M23 11v4"/>
-        <rect x="3" y="9" width="10" height="7" rx="1" fill="currentColor"/>
       </svg>
 
       <span class="topbar__datetime">{{ formattedDateTime }}</span>
@@ -45,6 +49,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { checkPrinterStatus } from '@/lib/printer.js'
 
 defineProps({
   activeFloor:    { type: String,  default: '1F' },
@@ -59,12 +64,33 @@ const floors = ['1F', '2F']
 const now = ref(new Date())
 let timer = null
 
+/* ── WiFi / 網路狀態：用瀏覽器原生事件，即時反應，不用輪詢 ── */
+const isOnline = ref(navigator.onLine)
+function updateOnlineStatus() { isOnline.value = navigator.onLine }
+
+/* ── 出單機連線狀態：定期 ping ── */
+const isPrinterOnline = ref(false)
+let printerTimer = null
+
+async function pollPrinterStatus() {
+  isPrinterOnline.value = await checkPrinterStatus()
+}
+
 onMounted(() => {
   timer = setInterval(() => { now.value = new Date() }, 1000 * 60)
+
+  window.addEventListener('online', updateOnlineStatus)
+  window.addEventListener('offline', updateOnlineStatus)
+
+  pollPrinterStatus()
+  printerTimer = setInterval(pollPrinterStatus, 15000)
 })
 
 onUnmounted(() => {
   clearInterval(timer)
+  clearInterval(printerTimer)
+  window.removeEventListener('online', updateOnlineStatus)
+  window.removeEventListener('offline', updateOnlineStatus)
 })
 
 const formattedDateTime = computed(() => {
@@ -135,6 +161,14 @@ const formattedDateTime = computed(() => {
   width: 15px;
   height: 15px;
   color: var(--color-text-brand);
+}
+
+.topbar__status-icon--ok {
+  color: #3a7a3a;
+}
+
+.topbar__status-icon--bad {
+  color: #c0392b;
 }
 
 .topbar__datetime {

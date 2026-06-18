@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import NewOrderView    from '@/views/NewOrderView.vue'
 import DineInView      from '@/views/DineInView.vue'
+import TakeoutView     from '@/views/TakeoutView.vue'
 import DeliveryView    from '@/views/DeliveryView.vue'
 import ReservationView from '@/views/ReservationView.vue'
 
@@ -17,6 +18,7 @@ const routes = [
   /* 主功能 */
   { path: '/new-order',   name: 'NewOrder',    component: NewOrderView },
   { path: '/dine-in',     name: 'DineIn',      component: DineInView },
+  { path: '/takeout',     name: 'Takeout',     component: TakeoutView },
   { path: '/delivery',    name: 'Delivery',    component: DeliveryView },
   { path: '/reservation', name: 'Reservation', component: ReservationView },
 

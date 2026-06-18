@@ -244,11 +244,16 @@ const emit = defineEmits(['finish-editing', 'seat-assigned', 'cancel-arrange'])
 const svgRef      = ref(null)
 const nameInputRef = ref(null)
 
-/* ── Constants ── */
+/* ── Constants ──
+   狀態語意（依店家「先點先結」的營運模式）：
+   empty   = 空位（沒人坐）
+   ordered = 未點餐（已入座，還沒點餐／結帳）  ※ 沿用舊 key 名稱避免資料遷移，意義已改變
+   paid    = 已點餐（點餐＝結帳，兩者同時發生）
+*/
 const LEGEND = [
-  { label: '未點餐', color: 'var(--color-seat-empty)' },
-  { label: '已點餐', color: 'var(--color-seat-ordered)' },
-  { label: '已結帳', color: 'var(--color-seat-paid)' },
+  { label: '空位',   color: 'var(--color-seat-empty)' },
+  { label: '未點餐', color: 'var(--color-seat-ordered)' },
+  { label: '已點餐', color: 'var(--color-seat-paid)' },
 ]
 
 const TOOLS = [
@@ -259,9 +264,9 @@ const TOOLS = [
 ]
 
 const STATUS_COLORS = {
-  empty:   '#b0a890',
-  ordered: '#c87d10',
-  paid:    '#358050',
+  empty:   '#b0a890',   // 空位
+  ordered: '#c87d10',   // 未點餐（已入座）
+  paid:    '#358050',   // 已點餐
 }
 
 // Base half-width / half-height of each shape (before scale)
@@ -270,6 +275,7 @@ const BASE_HH = { chair: 14, 'square-table': 22, 'round-table': 24 }
 
 /* ── Helpers ── */
 function statusColor(s) { return STATUS_COLORS[s] ?? STATUS_COLORS.empty }
+
 
 // Scaled half-dimensions — used for handle positioning
 function hw(item) { return (BASE_HW[item.type] ?? 18) * item.scaleX }

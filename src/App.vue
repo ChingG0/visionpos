@@ -12,10 +12,14 @@ import { computed, onMounted } from 'vue'
 import { useMenuStore }        from '@/stores/menuStore.js'
 import { useReservationStore } from '@/stores/reservationStore.js'
 import { useMemberStore }      from '@/stores/memberStore.js'
+import { useTagStore }         from '@/stores/tagStore.js'
+import { useTakeoutStore }     from '@/stores/takeoutStore.js'
 
 const menuStore        = useMenuStore()
 const reservationStore = useReservationStore()
 const memberStore      = useMemberStore()
+const tagStore         = useTagStore()
+const takeoutStore     = useTakeoutStore()
 
 /* 商品跟訂位資料還沒回來前先擋住畫面，避免空白閃一下 */
 const isLoading = computed(() => menuStore.loading || reservationStore.loading)
@@ -24,6 +28,8 @@ onMounted(() => {
   menuStore.init()
   reservationStore.init()
   memberStore.init()
+  tagStore.init()
+  takeoutStore.init()
 })
 </script>
 

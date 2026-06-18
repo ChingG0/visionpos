@@ -3,7 +3,7 @@
 
     <!-- 標題 + 搜尋 -->
     <div class="mcb__row">
-      <h2 class="mcb__title">Menu <span class="mcb__title-light">Category</span></h2>
+      <h2 class="mcb__title">商品<span class="mcb__title-light">分類</span></h2>
       <div class="mcb__search">
         <svg class="mcb__search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <circle cx="11" cy="11" r="7"/>

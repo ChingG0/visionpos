@@ -57,7 +57,7 @@ export const useMenuStore = defineStore('menu', () => {
     try {
       const [catRes, itemRes] = await Promise.all([
         supabase.from('categories').select('*').order('sort_order'),
-        supabase.from('menu_items').select('*'),
+        supabase.from('menu_items').select('*').order('sort_order'),
       ])
       if (catRes.error)  throw catRes.error
       if (itemRes.error) throw itemRes.error

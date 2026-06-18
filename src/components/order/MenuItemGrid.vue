@@ -1,21 +1,15 @@
 <template>
   <div class="mig">
 
-    <!-- Header: 標題 + 排序 -->
+    <!-- Header -->
     <div class="mig__header">
-      <h3 class="mig__title">Choose <span class="mig__title-light">Order</span></h3>
-      <button class="mig__sort" @click="cycleSort">
-        <span>Sort By <strong>{{ sortLabel }}</strong></span>
-        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="6 9 12 15 18 9"/>
-        </svg>
-      </button>
+      <h3 class="mig__title">商品<span class="mig__title-light">選擇</span></h3>
     </div>
 
     <!-- Grid -->
     <div class="mig__grid">
       <button
-        v-for="item in sortedItems"
+        v-for="item in items"
         :key="item.id"
         class="mig__card"
         @click="emit('add', item)"
@@ -26,40 +20,19 @@
         <span class="mig__price">${{ item.price }}</span>
       </button>
 
-      <p v-if="sortedItems.length === 0" class="mig__empty">沒有符合的品項</p>
+      <p v-if="items.length === 0" class="mig__empty">沒有符合的品項</p>
     </div>
 
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
-
 const props = defineProps({
   items:       { type: Array,  required: true },
   cartQtyMap:  { type: Object, default: () => ({}) },
 })
 
 const emit = defineEmits(['add'])
-
-/* ── 排序 ── */
-const SORT_MODES = ['popular', 'price-asc', 'price-desc']
-const SORT_LABELS = { popular: 'Popular', 'price-asc': 'Price ↑', 'price-desc': 'Price ↓' }
-
-const sortMode  = ref('popular')
-const sortLabel = computed(() => SORT_LABELS[sortMode.value])
-
-function cycleSort() {
-  const idx = SORT_MODES.indexOf(sortMode.value)
-  sortMode.value = SORT_MODES[(idx + 1) % SORT_MODES.length]
-}
-
-const sortedItems = computed(() => {
-  const arr = [...props.items]
-  if (sortMode.value === 'price-asc')  arr.sort((a, b) => a.price - b.price)
-  if (sortMode.value === 'price-desc') arr.sort((a, b) => b.price - a.price)
-  return arr
-})
 
 function qtyOf(item) {
   return props.cartQtyMap[item.id] ?? 0
@@ -76,12 +49,11 @@ function qtyOf(item) {
 .mig__header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   margin-bottom: 12px;
 }
 
 .mig__title {
-  font-size: 16px;
+  font-size: 19px;
   font-weight: 600;
   color: var(--color-text-primary);
 }
@@ -89,19 +61,6 @@ function qtyOf(item) {
 .mig__title-light {
   font-weight: 400;
   color: var(--color-text-secondary);
-}
-
-.mig__sort {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  color: var(--color-text-secondary);
-}
-
-.mig__sort strong {
-  color: var(--color-text-primary);
-  font-weight: 500;
 }
 
 /* ── Grid ── */

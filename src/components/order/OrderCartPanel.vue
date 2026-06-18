@@ -1,9 +1,20 @@
 <template>
   <aside class="ocp">
 
-    <!-- Header -->
+    <!-- Header: 內用 / 外帶 切換 -->
     <div class="ocp__header">
-      <h3 class="ocp__title">Order <span class="ocp__title-light">Menu</span></h3>
+      <div class="ocp__order-type">
+        <button
+          class="ocp__type-btn"
+          :class="{ 'ocp__type-btn--active': orderType === 'dine-in' }"
+          @click="emit('update:orderType', 'dine-in')"
+        >內用</button>
+        <button
+          class="ocp__type-btn"
+          :class="{ 'ocp__type-btn--active': orderType === 'takeout' }"
+          @click="emit('update:orderType', 'takeout')"
+        >外帶</button>
+      </div>
       <button
         v-if="cartItems.length > 0"
         class="ocp__clear-btn"
@@ -16,6 +27,15 @@
           <path d="M9 6V4a2 2 0 012-2h2a2 2 0 012 2v2"/>
         </svg>
       </button>
+    </div>
+
+    <!-- 內用：已選桌號 -->
+    <div v-if="orderType === 'dine-in'" class="ocp__table-row">
+      <span v-if="tableName" class="ocp__table-chip">
+        🍽 {{ tableName }}
+        <button class="ocp__table-clear" aria-label="重選桌號" @click="emit('change-table')">×</button>
+      </span>
+      <button v-else class="ocp__table-pick-btn" @click="emit('change-table')">選擇桌號</button>
     </div>
 
     <!-- 購物車列表 -->
@@ -40,20 +60,37 @@
 
         <button class="ocp__line-remove" aria-label="移除" @click="emit('remove', line.id)">×</button>
       </div>
+
+      <!-- 整單備註 / 標籤摘要 -->
+      <div v-if="note || selectedTags.length > 0" class="ocp__note-block">
+        <p v-if="note" class="ocp__note-text">📝 {{ note }}</p>
+        <div v-if="selectedTags.length > 0" class="ocp__tag-list">
+          <span
+            v-for="tag in selectedTags"
+            :key="tag.id"
+            class="ocp__tag-pill"
+            :style="{ background: tagColorOf(tag).bg, color: tagColorOf(tag).text }"
+          >{{ tag.label }}</span>
+        </div>
+      </div>
     </div>
 
     <!-- Footer -->
     <div class="ocp__footer">
       <div class="ocp__summary-row">
-        <span>Sub Total</span>
+        <span>小計</span>
         <span>${{ subtotal.toFixed(2) }}</span>
       </div>
-      <div class="ocp__summary-row">
-        <span>餐盒費</span>
-        <span>${{ containerFee.toFixed(2) }}</span>
+      <div v-if="surchargeAmount > 0" class="ocp__summary-row">
+        <span>加價{{ surcharge?.reason ? `（${surcharge.reason}）` : '' }}</span>
+        <span>+${{ surchargeAmount.toFixed(2) }}</span>
+      </div>
+      <div v-if="discountAmount > 0" class="ocp__summary-row ocp__summary-row--discount">
+        <span>折扣{{ discountLabel }}</span>
+        <span>−${{ discountAmount.toFixed(2) }}</span>
       </div>
       <div class="ocp__summary-row ocp__summary-row--total">
-        <span>Total</span>
+        <span>總計</span>
         <span>${{ total.toFixed(2) }}</span>
       </div>
 
@@ -62,7 +99,7 @@
         :disabled="cartItems.length === 0"
         @click="emit('charge')"
       >
-        送出訂單　${{ total.toFixed(2) }}
+        {{ orderType === 'dine-in' && !tableName ? '送出訂單（請先選桌號）' : `送出訂單　$${total.toFixed(2)}` }}
       </button>
     </div>
 
@@ -71,21 +108,50 @@
 
 <script setup>
 import { computed } from 'vue'
+import { TAG_COLOR_MAP } from '@/constants/tagColors.js'
 
 const props = defineProps({
-  cartItems: { type: Array, required: true },
+  cartItems:    { type: Array,  required: true },
+  note:         { type: String, default: '' },
+  selectedTags: { type: Array,  default: () => [] },   // [{ id, label, color }]
+  surcharge:    { type: Object, default: null },        // { amount, reason } | null
+  discount:     { type: Object, default: null },        // { type: 'percent'|'amount', value } | null
+  orderType:    { type: String, default: 'dine-in' },    // 'dine-in' | 'takeout'
+  tableName:    { type: String, default: '' },
 })
 
-const emit = defineEmits(['increase', 'decrease', 'remove', 'clear', 'charge'])
+const emit = defineEmits([
+  'increase', 'decrease', 'remove', 'clear', 'charge',
+  'update:orderType', 'change-table',
+])
 
 const subtotal = computed(() =>
   props.cartItems.reduce((sum, l) => sum + l.price * l.qty, 0)
 )
 
-/* 外帶餐盒費：有品項才收，固定 $10（之後可改設定） */
-const containerFee = computed(() => (props.cartItems.length > 0 ? 10 : 0))
+const surchargeAmount = computed(() => props.surcharge?.amount ?? 0)
 
-const total = computed(() => subtotal.value + containerFee.value)
+const discountAmount = computed(() => {
+  if (!props.discount || !props.discount.value) return 0
+  const base = subtotal.value + surchargeAmount.value
+  if (props.discount.type === 'percent') {
+    return Math.round(base * (props.discount.value / 100))
+  }
+  return Math.min(props.discount.value, base)
+})
+
+const discountLabel = computed(() => {
+  if (!props.discount) return ''
+  return props.discount.type === 'percent' ? `（${props.discount.value}%）` : ''
+})
+
+const total = computed(() =>
+  Math.max(0, subtotal.value + surchargeAmount.value - discountAmount.value)
+)
+
+function tagColorOf(tag) {
+  return TAG_COLOR_MAP[tag.color] ?? TAG_COLOR_MAP.gray
+}
 </script>
 
 <style scoped>
@@ -114,10 +180,70 @@ const total = computed(() => subtotal.value + containerFee.value)
   color: var(--color-text-primary);
 }
 
-.ocp__title-light {
-  font-weight: 400;
-  color: var(--color-text-secondary);
+/* ── 內用 / 外帶 切換 ── */
+.ocp__order-type {
+  display: flex;
+  gap: 4px;
+  background: #f0e8d8;
+  border-radius: var(--radius-sm);
+  padding: 3px;
 }
+
+.ocp__type-btn {
+  padding: 5px 14px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  transition: background 0.12s, color 0.12s;
+}
+
+.ocp__type-btn--active {
+  background: #fff;
+  color: var(--color-text-primary);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+/* ── 內用選桌 ── */
+.ocp__table-row {
+  padding: 0 18px 10px;
+  flex-shrink: 0;
+}
+
+.ocp__table-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #2f7a3d;
+  background: #e1f3e1;
+  padding: 5px 8px 5px 12px;
+  border-radius: 999px;
+}
+
+.ocp__table-clear {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.08);
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.ocp__table-pick-btn {
+  font-size: 12.5px;
+  color: #b8631f;
+  background: #fde8d2;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-weight: 500;
+}
+
+.ocp__table-pick-btn:hover { background: #fbdcb8; }
 
 .ocp__clear-btn {
   width: 26px;
@@ -243,6 +369,36 @@ const total = computed(() => subtotal.value + containerFee.value)
 
 .ocp__line-remove:hover { background: #f0c0b8; }
 
+/* ── 整單備註 / 標籤摘要 ── */
+.ocp__note-block {
+  padding-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ocp__note-text {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  background: #faf5ec;
+  padding: 6px 9px;
+  border-radius: var(--radius-sm);
+  line-height: 1.4;
+}
+
+.ocp__tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.ocp__tag-pill {
+  font-size: 11px;
+  padding: 2px 9px;
+  border-radius: var(--radius-full);
+  font-weight: 500;
+}
+
 /* ── Footer ── */
 .ocp__footer {
   padding: 12px 18px 18px;
@@ -256,6 +412,10 @@ const total = computed(() => subtotal.value + containerFee.value)
   font-size: 12.5px;
   color: var(--color-text-secondary);
   margin-bottom: 6px;
+}
+
+.ocp__summary-row--discount {
+  color: #c03020;
 }
 
 .ocp__summary-row--total {

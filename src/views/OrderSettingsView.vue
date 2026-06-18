@@ -42,7 +42,7 @@
 
         <!-- 已上架（可拖曳排序、拖到右側下架） -->
         <section class="os__published" ref="publishedZoneRef">
-          <h3 class="os__section-title">Choose <span class="os__section-title-light">Order</span></h3>
+          <h3 class="os__section-title">商品<span class="os__section-title-light">排序</span></h3>
           <p class="os__hint">拖曳調整順序，拖到右側「待上架」即可下架</p>
 
           <div class="os__grid">
@@ -92,6 +92,37 @@
         </aside>
 
       </div>
+
+      <!-- 快速標籤管理 -->
+      <section class="os__tags-section">
+        <div class="os__tags-header">
+          <h3 class="os__section-title">快速<span class="os__section-title-light">標籤</span></h3>
+          <div class="os__tags-header-actions">
+            <button class="os__edit-tags-btn" @click="tagEditMode = !tagEditMode">
+              {{ tagEditMode ? '✓ 完成排序' : '編輯排序' }}
+            </button>
+            <button class="os__add-tag-btn" @click="openTagCreate">+ 新增標籤</button>
+          </div>
+        </div>
+        <p v-if="tagEditMode" class="os__tags-hint">拖曳調整標籤順序</p>
+        <div class="os__tags-list">
+          <button
+            v-for="tag in tagStore.tags"
+            :key="tag.id"
+            :ref="el => setTagChipEl(tag.id, el)"
+            class="os__tag-chip"
+            :class="{ 'os__tag-chip--edit': tagEditMode, 'os__tag-chip--dragging': tagDrag?.tagId === tag.id && tagDrag?.hasMoved }"
+            :style="{
+              background: tagColorOf(tag).bg,
+              color: tagColorOf(tag).text,
+              borderColor: tagColorOf(tag).border ?? tagColorOf(tag).bg,
+            }"
+            @pointerdown="tagEditMode && onTagPointerDown(tag, $event)"
+            @click="!tagEditMode && openTagEdit(tag)"
+          >{{ tag.label }}</button>
+          <p v-if="tagStore.tags.length === 0" class="os__empty-small">尚未建立標籤，點「新增標籤」開始</p>
+        </div>
+      </section>
     </div>
 
     <!-- 拖曳中的浮動小卡（商品） -->
@@ -110,6 +141,30 @@
       </div>
     </Teleport>
 
+    <!-- 拖曳中的浮動小卡（標籤） -->
+    <Teleport to="body">
+      <div
+        v-if="tagDrag?.hasMoved"
+        class="os__ghost"
+        :style="{
+          left: `${tagDrag.x}px`,
+          top: `${tagDrag.y}px`,
+          background: tagDragColor.bg,
+          color: tagDragColor.text,
+        }"
+      >
+        <span>{{ tagDrag.label }}</span>
+      </div>
+    </Teleport>
+
+    <TagFormModal
+      v-if="showTagModal"
+      :initial-data="editingTag"
+      @close="showTagModal = false"
+      @submit="handleTagSubmit"
+      @delete="handleTagDelete"
+    />
+
   </div>
 </template>
 
@@ -117,9 +172,128 @@
 import { ref, computed, onUnmounted } from 'vue'
 import SettingsSidebar from '@/components/settings/SettingsSidebar.vue'
 import AppTopbar         from '@/components/layout/AppTopbar.vue'
+import TagFormModal      from '@/components/settings/TagFormModal.vue'
 import { useMenuStore }  from '@/stores/menuStore.js'
+import { useTagStore }   from '@/stores/tagStore.js'
+import { TAG_COLOR_MAP } from '@/constants/tagColors.js'
 
 const menuStore = useMenuStore()
+const tagStore  = useTagStore()
+
+function tagColorOf(tag) {
+  return TAG_COLOR_MAP[tag.color] ?? TAG_COLOR_MAP.gray
+}
+
+/* ── 標籤新增/編輯 ── */
+const showTagModal = ref(false)
+const editingTag    = ref(null)
+
+function openTagCreate() {
+  editingTag.value = null
+  showTagModal.value = true
+}
+
+function openTagEdit(tag) {
+  editingTag.value = tag
+  showTagModal.value = true
+}
+
+function handleTagSubmit(data) {
+  if (editingTag.value) tagStore.updateTag(editingTag.value.id, data)
+  else tagStore.addTag(data)
+  showTagModal.value = false
+}
+
+function handleTagDelete() {
+  if (editingTag.value) tagStore.deleteTag(editingTag.value.id)
+  showTagModal.value = false
+}
+
+/* ── 標籤拖曳排序 ── */
+const tagEditMode = ref(false)
+const tagDrag      = ref(null)   // { tagId, label, color, startX, startY, x, y, dropIndex, hasMoved }
+const tagChipEls   = new Map()   // tagId -> HTMLElement
+
+function setTagChipEl(id, el) {
+  if (el) tagChipEls.set(id, el)
+  else tagChipEls.delete(id)
+}
+
+const tagDragColor = computed(() => {
+  if (!tagDrag.value) return TAG_COLOR_MAP.gray
+  return TAG_COLOR_MAP[tagDrag.value.color] ?? TAG_COLOR_MAP.gray
+})
+
+function onTagPointerDown(tag, e) {
+  tagDrag.value = {
+    tagId: tag.id,
+    label: tag.label,
+    color: tag.color,
+    startX: e.clientX,
+    startY: e.clientY,
+    x: e.clientX,
+    y: e.clientY,
+    dropIndex: null,
+    hasMoved: false,
+  }
+  window.addEventListener('pointermove', onTagPointerMove)
+  window.addEventListener('pointerup', onTagPointerUp)
+}
+
+function onTagPointerMove(e) {
+  const d = tagDrag.value
+  if (!d) return
+  d.x = e.clientX
+  d.y = e.clientY
+
+  if (!d.hasMoved) {
+    const dist = Math.hypot(e.clientX - d.startX, e.clientY - d.startY)
+    if (dist > DRAG_THRESHOLD) d.hasMoved = true
+    else return
+  }
+
+  /* 標籤會換行排列，跟商品格一樣用 2D 最近距離決定插入位置 */
+  let nearestIdx   = tagStore.tags.length
+  let nearestDist  = Infinity
+  let insertBefore = true
+
+  tagStore.tags.forEach((tag, idx) => {
+    if (tag.id === d.tagId) return
+    const el = tagChipEls.get(tag.id)
+    if (!el) return
+    const r  = el.getBoundingClientRect()
+    const cx = r.left + r.width / 2
+    const cy = r.top + r.height / 2
+    const dist = Math.hypot(e.clientX - cx, e.clientY - cy)
+    if (dist < nearestDist) {
+      nearestDist  = dist
+      nearestIdx   = idx
+      insertBefore = e.clientX < cx
+    }
+  })
+
+  d.dropIndex = insertBefore ? nearestIdx : nearestIdx + 1
+}
+
+function onTagPointerUp() {
+  const d = tagDrag.value
+  window.removeEventListener('pointermove', onTagPointerMove)
+  window.removeEventListener('pointerup', onTagPointerUp)
+  if (!d) return
+
+  try {
+    if (d.hasMoved && d.dropIndex != null) {
+      const ids = tagStore.tags.map(t => t.id).filter(id => id !== d.tagId)
+      const clamped = Math.max(0, Math.min(d.dropIndex, ids.length))
+      ids.splice(clamped, 0, d.tagId)
+      tagStore.reorderTags(ids)
+    }
+  } catch (err) {
+    console.error('[OrderSettingsView] 標籤排序失敗', err)
+  } finally {
+    tagDrag.value = null
+  }
+}
 
 const activeCategoryId = ref(menuStore.categories[0]?.id ?? '')
 const activeCategoryLabel = computed(
@@ -246,6 +420,8 @@ onUnmounted(() => {
   window.removeEventListener('pointerup', onPointerUp)
   window.removeEventListener('pointermove', onCategoryPointerMove)
   window.removeEventListener('pointerup', onCategoryPointerUp)
+  window.removeEventListener('pointermove', onTagPointerMove)
+  window.removeEventListener('pointerup', onTagPointerUp)
 })
 
 /* ════════════════════════════════════════════
@@ -626,5 +802,83 @@ function onCategoryPointerUp() {
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
   pointer-events: none;
   z-index: 9999;
+}
+
+/* ── 快速標籤管理 ── */
+.os__tags-section {
+  flex-shrink: 0;
+  border-top: 1px solid #ede5d0;
+  padding: 12px 18px 16px;
+  max-height: 130px;
+  overflow-y: auto;
+}
+
+.os__tags-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.os__tags-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.os__edit-tags-btn {
+  padding: 5px 12px;
+  background: #fff;
+  border: 1px solid var(--color-border-btn);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--color-text-primary);
+  transition: background 0.12s;
+}
+
+.os__edit-tags-btn:hover { background: var(--color-bg-arrange-btn); }
+
+.os__tags-hint {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  margin-bottom: 8px;
+}
+
+.os__add-tag-btn {
+  padding: 5px 12px;
+  background: #fff;
+  border: 1px solid var(--color-border-btn);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--color-text-primary);
+  transition: background 0.12s;
+}
+
+.os__add-tag-btn:hover { background: var(--color-bg-arrange-btn); }
+
+.os__tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.os__tag-chip {
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1.5px solid transparent;
+  transition: transform 0.1s;
+}
+
+.os__tag-chip:hover {
+  transform: scale(1.04);
+}
+
+.os__tag-chip--edit {
+  cursor: grab;
+}
+
+.os__tag-chip--dragging {
+  opacity: 0.35;
 }
 </style>

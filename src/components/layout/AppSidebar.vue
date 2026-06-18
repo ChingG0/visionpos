@@ -69,6 +69,15 @@ const IconDineIn = defineComponent({
   ])
 })
 
+/* 外帶：提袋圖示 */
+const IconTakeout = defineComponent({
+  render: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
+    h('path', { d: 'M6 8h12l-1 13H7L6 8z' }),
+    h('path', { d: 'M9 8V6a3 3 0 016 0v2' }),
+    h('line', { x1: '6.5', y1: '12', x2: '17.5', y2: '12' }),
+  ])
+})
+
 /* 外送：機車圖示 */
 const IconDelivery = defineComponent({
   render: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
@@ -97,6 +106,7 @@ const IconReservation = defineComponent({
 const navItems = [
   { id: 'NewOrder',    label: '新訂單', icon: IconNewOrder },
   { id: 'DineIn',      label: '內用',   icon: IconDineIn },
+  { id: 'Takeout',     label: '外帶',   icon: IconTakeout },
   { id: 'Delivery',    label: '外送',   icon: IconDelivery },
   { id: 'Reservation', label: '預約',   icon: IconReservation },
 ]
