@@ -1,6 +1,7 @@
 import { StarWebPrintBuilder } from './starwebprnt/StarWebPrintBuilder.js'
 import { StarWebPrintTrader }  from './starwebprnt/StarWebPrintTrader.js'
-import { supabase } from './supabase.js'
+import { supabase }            from './supabase.js'
+import { toBig5BinaryString }  from './big5.js'
 
 /*
   出單機設定（Star mC-Print3 / MCP31L，網路版）
@@ -16,8 +17,13 @@ const STORE_INFO = {
   phone:   '',   // TODO: 填電話
 }
 
-/* 80mm 出單機可印寬度，單位是點（dot），mC-Print3 標準值 */
-const LINE_WIDTH_DOTS = 576
+/*
+  可印寬度，單位是點（dot）。實際紙捲是 5.5cm，跟印表機自助測試單上顯示的
+  「Printable Area: 72mm」（對應 80mm 紙捲）不一致——換紙寬要用 Star 官方的
+  設定工具改記憶體開關才會真的生效，不是換捲紙就自動切換。這裡先用 58mm
+  紙捲常見的 384 點，如果印出來這條線跑出紙外或留白太多，告訴我再調。
+*/
+const LINE_WIDTH_DOTS = 384
 
 /* 跟後台拿今天的取單號（每天從 1 開始，原子遞增不會搶號） */
 export async function getNextPickupNumber() {
@@ -51,6 +57,18 @@ export function checkPrinterStatus() {
   })
 }
 
+/*
+  印表機的記憶體設定是 Character Mode: T-Chinese，內建字型是 Big5 雙位元組定址，
+  不是 Unicode 字型。所以中文文字一定要先轉成真正的 Big5 位元組，透過 binary
+  模式送出去——只靠 codepage 屬性貼標籤、底層仍送 UTF-8 位元組的話，印表機會
+  用 Big5 的方式去解讀那些 UTF-8 位元組，印出來會是另一批字（之前遇到的亂碼）。
+  這個函式把所有文字內容都統一走這條路，數字/英文混在中文裡也沒問題
+  （Big5 在 0x00–0x7F 範圍跟 ASCII 相容）。
+*/
+function bigText(text) {
+  return { data: toBig5BinaryString(text), binary: true }
+}
+
 function buildReceiptRequest({
   pickupNumber, orderType, tableName,
   items, tags, note,
@@ -60,57 +78,56 @@ function buildReceiptRequest({
   let req = ''
 
   req += builder.createInitializationElement()
-  /* 印表機記憶體設定已經是 Character Mode: T-Chinese，這裡指定 big5 編碼讓繁體中文正常印出 */
   req += builder.createTextElement({ codepage: 'big5' })
 
   /* 店名 */
   req += builder.createAlignmentElement({ position: 'center' })
-  req += builder.createTextElement({ width: 2, height: 2, emphasis: true, data: `${STORE_INFO.name}\n` })
-  if (STORE_INFO.address) req += builder.createTextElement({ data: `${STORE_INFO.address}\n` })
-  if (STORE_INFO.phone)   req += builder.createTextElement({ data: `${STORE_INFO.phone}\n` })
-  req += builder.createTextElement({ data: '\n' })
+  req += builder.createTextElement({ width: 2, height: 2, emphasis: true, ...bigText(`${STORE_INFO.name}\n`) })
+  if (STORE_INFO.address) req += builder.createTextElement(bigText(`${STORE_INFO.address}\n`))
+  if (STORE_INFO.phone)   req += builder.createTextElement(bigText(`${STORE_INFO.phone}\n`))
+  req += builder.createTextElement(bigText('\n'))
 
   /* 取單號 */
   if (pickupNumber != null) {
-    req += builder.createTextElement({ width: 3, height: 3, emphasis: true, data: `取單號 ${pickupNumber}\n` })
+    req += builder.createTextElement({ width: 3, height: 3, emphasis: true, ...bigText(`取單號 ${pickupNumber}\n`) })
   }
   req += builder.createAlignmentElement({ position: 'left' })
-  req += builder.createTextElement({ data: '\n' })
+  req += builder.createTextElement(bigText('\n'))
 
   req += builder.createRuledLineElement({ thickness: 'medium', width: LINE_WIDTH_DOTS })
 
   /* 內用 / 外帶 + 品項數 */
   const typeLabel = orderType === 'takeout' ? '外帶' : `內用－${tableName || '未選桌'}`
-  req += builder.createTextElement({ emphasis: true, data: `${typeLabel}\n` })
-  req += builder.createTextElement({ data: `品項數：${items.length}\n` })
+  req += builder.createTextElement({ emphasis: true, ...bigText(`${typeLabel}\n`) })
+  req += builder.createTextElement(bigText(`品項數：${items.length}\n`))
 
   req += builder.createRuledLineElement({ thickness: 'thin', width: LINE_WIDTH_DOTS })
 
   /* 品項列表（先求穩定可印出，不做精準靠右對齊——中文跟數字寬度不同，硬排容易跑版） */
   items.forEach((line, idx) => {
     const lineTotal = (line.price * line.qty).toFixed(0)
-    req += builder.createTextElement({ data: `${idx + 1}. ${line.name} x${line.qty}　$${lineTotal}\n` })
+    req += builder.createTextElement(bigText(`${idx + 1}. ${line.name} x${line.qty}　$${lineTotal}\n`))
   })
 
   if (tags?.length) {
-    req += builder.createTextElement({ data: `標籤：${tags.map(t => t.label).join('、')}\n` })
+    req += builder.createTextElement(bigText(`標籤：${tags.map(t => t.label).join('、')}\n`))
   }
   if (note) {
-    req += builder.createTextElement({ data: `備註：${note}\n` })
+    req += builder.createTextElement(bigText(`備註：${note}\n`))
   }
 
   req += builder.createRuledLineElement({ thickness: 'thin', width: LINE_WIDTH_DOTS })
 
-  req += builder.createTextElement({ data: `小計　　$${subtotal.toFixed(0)}\n` })
-  if (surchargeAmount > 0) req += builder.createTextElement({ data: `加價　　+$${surchargeAmount.toFixed(0)}\n` })
-  if (discountAmount > 0) req += builder.createTextElement({ data: `折扣　　−$${discountAmount.toFixed(0)}\n` })
+  req += builder.createTextElement(bigText(`小計　　$${subtotal.toFixed(0)}\n`))
+  if (surchargeAmount > 0) req += builder.createTextElement(bigText(`加價　　+$${surchargeAmount.toFixed(0)}\n`))
+  if (discountAmount > 0) req += builder.createTextElement(bigText(`折扣　　−$${discountAmount.toFixed(0)}\n`))
 
-  req += builder.createTextElement({ data: '\n' })
-  req += builder.createTextElement({ width: 2, height: 2, emphasis: true, data: `總計 $${total.toFixed(0)}\n` })
-  req += builder.createTextElement({ data: '\n' })
+  req += builder.createTextElement(bigText('\n'))
+  req += builder.createTextElement({ width: 2, height: 2, emphasis: true, ...bigText(`總計 $${total.toFixed(0)}\n`) })
+  req += builder.createTextElement(bigText('\n'))
 
   req += builder.createAlignmentElement({ position: 'center' })
-  req += builder.createTextElement({ data: `${new Date().toLocaleString('zh-TW', { hour12: false })}\n` })
+  req += builder.createTextElement(bigText(`${new Date().toLocaleString('zh-TW', { hour12: false })}\n`))
   req += builder.createAlignmentElement({ position: 'left' })
 
   req += builder.createCutPaperElement({ feed: true })
