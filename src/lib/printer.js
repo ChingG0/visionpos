@@ -1,7 +1,7 @@
 import { StarWebPrintBuilder } from './starwebprnt/StarWebPrintBuilder.js'
 import { StarWebPrintTrader }  from './starwebprnt/StarWebPrintTrader.js'
 import { supabase }            from './supabase.js'
-import { toBig5BinaryString }  from './big5.js'
+import { toBig5BinaryString }  from './Big5.js'
 
 /*
   出單機設定（Star mC-Print3 / MCP31L，網路版）
