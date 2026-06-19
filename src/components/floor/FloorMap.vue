@@ -239,7 +239,7 @@ const props = defineProps({
   arrangingId: { type: Number, default: null },
 })
 
-const emit = defineEmits(['finish-editing', 'seat-assigned', 'cancel-arrange'])
+const emit = defineEmits(['finish-editing', 'seat-assigned', 'cancel-arrange', 'seat-click'])
 
 const svgRef      = ref(null)
 const nameInputRef = ref(null)
@@ -485,7 +485,14 @@ function onItemDown(item, e) {
     return
   }
 
-  if (!isEditing.value) return
+  // 普通瀏覽模式（非編輯、非選桌）：點擊已點餐 (paid) 的座位 → 通知父層顯示訂單資訊
+  if (!isEditing.value) {
+    if (item.status === 'paid' || item.status === 'ordered') {
+      emit('seat-click', { id: item.id, name: item.name, status: item.status, type: item.type })
+    }
+    return
+  }
+
   e.preventDefault()
   selectedId.value = item.id
 
@@ -621,7 +628,7 @@ function markItemSeated(itemId) {
   if (item) item.status = 'ordered'
 }
 
-defineExpose({ markItemSeated })
+defineExpose({ markItemSeated, reloadLayout: loadLayout })
 </script>
 
 <style scoped>

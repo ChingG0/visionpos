@@ -85,10 +85,12 @@ import { useTagStore }      from '@/stores/tagStore.js'
 import { useTakeoutStore }  from '@/stores/takeoutStore.js'
 import { fetchTables, markTableOrdered } from '@/lib/floorOrders.js'
 import { printOrderReceipt, getNextPickupNumber } from '@/lib/printer.js'
+import { useDineInStore } from '@/stores/dineInStore.js'
 
 const menuStore    = useMenuStore()
 const tagStore     = useTagStore()
 const takeoutStore = useTakeoutStore()
+const dineInStore  = useDineInStore()
 
 /* ── 分類 / 搜尋 ── */
 const activeCategoryId = ref(menuStore.categories[0]?.id ?? '')
@@ -247,7 +249,13 @@ async function handleCharge() {
       customerPhone: customerPhone.value,
     })
   } else {
+    /* 內用：標記座位狀態 + 存訂單到 dine_in_orders（供座位圖點擊查詢用） */
     await markTableOrdered(selectedTable.value.id)
+    await dineInStore.addOrder({
+      seatId:   selectedTable.value.id,
+      seatName: selectedTable.value.name,
+      ...orderPayload,
+    })
   }
 
   const printResult = await printOrderReceipt({
