@@ -21,7 +21,6 @@ const memberStore      = useMemberStore()
 const tagStore         = useTagStore()
 const takeoutStore     = useTakeoutStore()
 
-/* 商品跟訂位資料還沒回來前先擋住畫面，避免空白閃一下 */
 const isLoading = computed(() => menuStore.loading || reservationStore.loading)
 
 onMounted(() => {
@@ -30,6 +29,8 @@ onMounted(() => {
   memberStore.init()
   tagStore.init()
   takeoutStore.init()
+  /* deliveryStore 的 init 在 DeliveryView onMounted 呼叫，
+     因為 Realtime 訂閱只在外送頁面開著時才需要 */
 })
 </script>
 

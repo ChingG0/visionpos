@@ -1,14 +1,54 @@
 import { StarWebPrintBuilder } from './starwebprnt/StarWebPrintBuilder.js'
 import { StarWebPrintTrader }  from './starwebprnt/StarWebPrintTrader.js'
 import { supabase }            from './supabase.js'
-import { toBig5BinaryString }  from './big5.js'
+import { toBig5BinaryString }  from './Big5.js'
 
 /*
   出單機設定（Star mC-Print3 / MCP31L，網路版）
-  換印表機或換 IP，只要改 .env 的 VITE_PRINTER_URL，不用動程式碼。
-  端點格式：http://<印表機IP>/StarWebPRNT/SendMessage
+  預設值來自 .env 的 VITE_PRINTER_URL；如果使用者在「出單機設定」畫面手動填過 IP，
+  存在這台裝置的 localStorage 裡，之後一律優先用使用者填的值——這樣現場換網路、
+  印表機拿到新 IP，可以直接在畫面上改，不用回來改 .env 重新部署。
+  端點格式固定：http://<印表機IP>/StarWebPRNT/SendMessage
 */
-const PRINTER_URL = import.meta.env.VITE_PRINTER_URL || 'http://192.168.0.100/StarWebPRNT/SendMessage'
+const PRINTER_IP_STORAGE_KEY = 'visionpos:printerIp'
+
+function parseIpFromUrl(url) {
+  const match = url.match(/^https?:\/\/([^/]+)/)
+  return match ? match[1] : url
+}
+
+const DEFAULT_PRINTER_IP = parseIpFromUrl(
+  import.meta.env.VITE_PRINTER_URL || 'http://192.168.0.100/StarWebPRNT/SendMessage'
+)
+
+export function getPrinterIp() {
+  try {
+    return localStorage.getItem(PRINTER_IP_STORAGE_KEY) || DEFAULT_PRINTER_IP
+  } catch (e) {
+    return DEFAULT_PRINTER_IP
+  }
+}
+
+export function setPrinterIp(ip) {
+  try {
+    localStorage.setItem(PRINTER_IP_STORAGE_KEY, ip.trim())
+  } catch (e) {
+    console.error('[printer] 儲存印表機 IP 失敗', e)
+  }
+}
+
+export function resetPrinterIp() {
+  try {
+    localStorage.removeItem(PRINTER_IP_STORAGE_KEY)
+  } catch (e) {
+    console.error('[printer] 重置印表機 IP 失敗', e)
+  }
+}
+
+function getPrinterUrl(ipOverride) {
+  const ip = ipOverride || getPrinterIp()
+  return `http://${ip}/StarWebPRNT/SendMessage`
+}
 
 /* 店家資訊：之後想做成後台可編輯設定的話，改成從 Supabase 讀即可，現在先寫死方便改 */
 const STORE_INFO = {
@@ -38,8 +78,9 @@ export async function getNextPickupNumber() {
 /*
   檢查出單機是否連線：只送「初始化」這個不印紙、不切紙、不進紙的最小指令當 ping，
   收到回應就算連線正常。給畫面上的綠燈/紅燈用，輪詢用，逾時設短一點（4 秒）。
+  testIp：在「出單機設定」畫面測試還沒儲存的 IP 時用，不傳的話就用目前已儲存/預設的 IP。
 */
-export function checkPrinterStatus() {
+export function checkPrinterStatus(testIp) {
   return new Promise((resolve) => {
     let request
     try {
@@ -50,7 +91,7 @@ export function checkPrinterStatus() {
       return
     }
 
-    const trader = new StarWebPrintTrader({ url: PRINTER_URL, papertype: 'normal', timeout: 4000 })
+    const trader = new StarWebPrintTrader({ url: getPrinterUrl(testIp), papertype: 'normal', timeout: 4000 })
     trader.onReceive = () => resolve(true)
     trader.onError   = () => resolve(false)
     trader.sendMessage({ request })
@@ -151,7 +192,7 @@ export function printOrderReceipt(orderData) {
       return
     }
 
-    const trader = new StarWebPrintTrader({ url: PRINTER_URL, papertype: 'normal', timeout: 10000 })
+    const trader = new StarWebPrintTrader({ url: getPrinterUrl(), papertype: 'normal', timeout: 10000 })
 
     trader.onReceive = (response) => {
       resolve({ success: true, response })

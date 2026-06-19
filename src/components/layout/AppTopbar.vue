@@ -18,16 +18,21 @@
 
     <!-- Status Pill -->
     <div class="topbar__status-pill">
-      <svg
-        class="topbar__status-icon"
-        :class="isPrinterOnline ? 'topbar__status-icon--ok' : 'topbar__status-icon--bad'"
-        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-        :aria-label="isPrinterOnline ? '出單機已連線' : '出單機未連線'"
+      <button
+        class="topbar__status-btn"
+        :aria-label="isPrinterOnline ? '出單機已連線，點擊設定' : '出單機未連線，點擊設定'"
+        @click="showPrinterSettings = true"
       >
-        <polyline points="6 9 6 2 18 2 18 9"/>
-        <path d="M6 18H4a2 2 0 01-2-2V9h20v7a2 2 0 01-2 2h-2"/>
-        <rect x="6" y="14" width="12" height="8"/>
-      </svg>
+        <svg
+          class="topbar__status-icon"
+          :class="isPrinterOnline ? 'topbar__status-icon--ok' : 'topbar__status-icon--bad'"
+          viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+        >
+          <polyline points="6 9 6 2 18 2 18 9"/>
+          <path d="M6 18H4a2 2 0 01-2-2V9h20v7a2 2 0 01-2 2h-2"/>
+          <rect x="6" y="14" width="12" height="8"/>
+        </svg>
+      </button>
 
       <svg
         class="topbar__status-icon"
@@ -44,12 +49,19 @@
       <span class="topbar__datetime">{{ formattedDateTime }}</span>
     </div>
 
+    <PrinterSettingsModal
+      v-if="showPrinterSettings"
+      @close="showPrinterSettings = false"
+      @saved="pollPrinterStatus"
+    />
+
   </header>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { checkPrinterStatus } from '@/lib/printer.js'
+import PrinterSettingsModal from './PrinterSettingsModal.vue'
 
 defineProps({
   activeFloor:    { type: String,  default: '1F' },
@@ -63,6 +75,8 @@ const floors = ['1F', '2F']
 
 const now = ref(new Date())
 let timer = null
+
+const showPrinterSettings = ref(false)
 
 /* ── WiFi / 網路狀態：用瀏覽器原生事件，即時反應，不用輪詢 ── */
 const isOnline = ref(navigator.onLine)
@@ -161,6 +175,19 @@ const formattedDateTime = computed(() => {
   width: 15px;
   height: 15px;
   color: var(--color-text-brand);
+}
+
+.topbar__status-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  transition: background 0.12s;
+}
+
+.topbar__status-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
 }
 
 .topbar__status-icon--ok {

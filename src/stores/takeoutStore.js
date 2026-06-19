@@ -2,7 +2,6 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { supabase } from '@/lib/supabase.js'
 
-/* 外帶訂單佇列：點餐頁送出外帶單後進這裡，外帶頁負責叫號/完成 */
 export const useTakeoutStore = defineStore('takeoutOrders', () => {
 
   const orders  = ref([])
@@ -12,20 +11,22 @@ export const useTakeoutStore = defineStore('takeoutOrders', () => {
 
   function fromDb(row) {
     return {
-      id:        row.id,
-      items:     row.items ?? [],
-      tags:      row.tags ?? [],
-      note:      row.note,
-      surcharge: row.surcharge,
-      discount:  row.discount,
-      subtotal:  row.subtotal,
-      total:     row.total,
-      status:    row.status,
-      createdAt: row.created_at,
+      id:            row.id,
+      pickupNumber:  row.pickup_number,
+      customerName:  row.customer_name,
+      customerPhone: row.customer_phone,
+      items:         row.items ?? [],
+      tags:          row.tags ?? [],
+      note:          row.note,
+      surcharge:     row.surcharge,
+      discount:      row.discount,
+      subtotal:      row.subtotal,
+      total:         row.total,
+      status:        row.status,
+      createdAt:     row.created_at,
     }
   }
 
-  /* 只讀取還在等待中的外帶單（已完成的不需要顯示在佇列） */
   async function init() {
     if (loaded) return
     loading.value = true
@@ -47,11 +48,16 @@ export const useTakeoutStore = defineStore('takeoutOrders', () => {
     }
   }
 
-  /* 點餐頁送出外帶單時呼叫 */
-  async function addOrder({ items, tags, note, surcharge, discount, subtotal, total }) {
+  async function addOrder({ items, tags, note, surcharge, discount, subtotal, total, pickupNumber, customerName, customerPhone }) {
     const { data, error: err } = await supabase
       .from('takeout_orders')
-      .insert({ items, tags, note, surcharge, discount, subtotal, total, status: 'pending' })
+      .insert({
+        items, tags, note, surcharge, discount, subtotal, total,
+        pickup_number:  pickupNumber ?? null,
+        customer_name:  customerName  || null,
+        customer_phone: customerPhone || null,
+        status: 'pending',
+      })
       .select()
       .single()
     if (err) { console.error('[takeoutStore] 新增外帶訂單失敗', err); return null }
@@ -60,12 +66,12 @@ export const useTakeoutStore = defineStore('takeoutOrders', () => {
     return newOrder
   }
 
-  /* 外帶頁按「完成」時呼叫 */
+  /* 完成取餐：記錄 completed_at 供報表使用，然後從本地佇列移除 */
   async function completeOrder(id) {
     orders.value = orders.value.filter(o => o.id !== id)
     const { error: err } = await supabase
       .from('takeout_orders')
-      .update({ status: 'done' })
+      .update({ status: 'done', completed_at: new Date().toISOString() })
       .eq('id', id)
     if (err) console.error('[takeoutStore] 完成外帶訂單失敗', err)
   }

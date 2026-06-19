@@ -1,52 +1,54 @@
 <template>
-  <div class="placeholder">
+  <div class="rv">
     <SettingsSidebar />
-    <div class="placeholder__main">
+
+    <div class="rv__main">
       <AppTopbar :show-floor-tabs="false" title="營運報表" />
-      <div class="placeholder__body">
-        <p class="placeholder__icon">📊</p>
-        <p class="placeholder__text">營運報表開發中</p>
+
+      <div class="rv__content">
+        <RevenueOverview    v-if="currentPage === 'revenue'"      />
+        <TransactionRecords v-if="currentPage === 'transactions'" />
+        <ProductAnalysis    v-if="currentPage === 'products'"     />
+        <TagAnalysis        v-if="currentPage === 'tags'"         />
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import SettingsSidebar from '@/components/settings/SettingsSidebar.vue'
-import AppTopbar from '@/components/layout/AppTopbar.vue'
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
+import SettingsSidebar    from '@/components/settings/SettingsSidebar.vue'
+import AppTopbar          from '@/components/layout/AppTopbar.vue'
+import RevenueOverview    from '@/views/reports/RevenueOverview.vue'
+import TransactionRecords from '@/views/reports/TransactionRecords.vue'
+import ProductAnalysis    from '@/views/reports/ProductAnalysis.vue'
+import TagAnalysis        from '@/views/reports/TagAnalysis.vue'
+
+const route = useRoute()
+
+/* route.query.page 決定顯示哪個報表，預設「營收總覽」 */
+const currentPage = computed(() => route.query.page || 'revenue')
 </script>
 
 <style scoped>
-.placeholder {
+.rv {
   width: 100%;
   height: 100%;
   display: flex;
   overflow: hidden;
 }
 
-.placeholder__main {
+.rv__main {
   flex: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
-.placeholder__body {
+.rv__content {
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
+  overflow-y: auto;
   background: var(--color-bg-map);
-}
-
-.placeholder__icon {
-  font-size: 48px;
-}
-
-.placeholder__text {
-  font-size: var(--fs-lg);
-  color: var(--color-text-secondary);
 }
 </style>

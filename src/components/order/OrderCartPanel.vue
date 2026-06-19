@@ -38,6 +38,26 @@
       <button v-else class="ocp__table-pick-btn" @click="emit('change-table')">選擇桌號</button>
     </div>
 
+    <!-- 外帶：客戶資訊（選填） -->
+    <div v-if="orderType === 'takeout'" class="ocp__customer">
+      <input
+        class="ocp__customer-input"
+        type="text"
+        placeholder="訂購人姓名（選填）"
+        :value="customerName"
+        maxlength="20"
+        @input="emit('update:customerName', $event.target.value)"
+      />
+      <input
+        class="ocp__customer-input"
+        type="tel"
+        placeholder="電話（選填，自動存入會員）"
+        :value="customerPhone"
+        maxlength="15"
+        @input="emit('update:customerPhone', $event.target.value)"
+      />
+    </div>
+
     <!-- 購物車列表 -->
     <div class="ocp__list">
       <p v-if="cartItems.length === 0" class="ocp__empty">點選左側餐點開始點餐</p>
@@ -111,18 +131,21 @@ import { computed } from 'vue'
 import { TAG_COLOR_MAP } from '@/constants/tagColors.js'
 
 const props = defineProps({
-  cartItems:    { type: Array,  required: true },
-  note:         { type: String, default: '' },
-  selectedTags: { type: Array,  default: () => [] },   // [{ id, label, color }]
-  surcharge:    { type: Object, default: null },        // { amount, reason } | null
-  discount:     { type: Object, default: null },        // { type: 'percent'|'amount', value } | null
-  orderType:    { type: String, default: 'dine-in' },    // 'dine-in' | 'takeout'
-  tableName:    { type: String, default: '' },
+  cartItems:     { type: Array,  required: true },
+  note:          { type: String, default: '' },
+  selectedTags:  { type: Array,  default: () => [] },
+  surcharge:     { type: Object, default: null },
+  discount:      { type: Object, default: null },
+  orderType:     { type: String, default: 'dine-in' },
+  tableName:     { type: String, default: '' },
+  customerName:  { type: String, default: '' },
+  customerPhone: { type: String, default: '' },
 })
 
 const emit = defineEmits([
   'increase', 'decrease', 'remove', 'clear', 'charge',
   'update:orderType', 'change-table',
+  'update:customerName', 'update:customerPhone',
 ])
 
 const subtotal = computed(() =>
@@ -204,7 +227,29 @@ function tagColorOf(tag) {
   box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
 
-/* ── 內用選桌 ── */
+/* ── 外帶客戶資訊 ── */
+.ocp__customer {
+  padding: 0 18px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.ocp__customer-input {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1.5px solid #c8b89a;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: #1a0800;
+  background: #faf5ec;
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.15s;
+}
+
+.ocp__customer-input:focus { border-color: #e8a038; }
 .ocp__table-row {
   padding: 0 18px 10px;
   flex-shrink: 0;

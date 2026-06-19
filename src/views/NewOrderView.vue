@@ -44,6 +44,8 @@
           :discount="discount"
           :order-type="orderType"
           :table-name="selectedTable?.name ?? ''"
+          :customer-name="customerName"
+          :customer-phone="customerPhone"
           @increase="increaseQty"
           @decrease="decreaseQty"
           @remove="removeItem"
@@ -51,6 +53,8 @@
           @charge="handleCharge"
           @update:order-type="handleOrderTypeChange"
           @change-table="openTablePicker"
+          @update:customer-name="customerName = $event"
+          @update:customer-phone="customerPhone = $event"
         />
 
       </div>
@@ -145,6 +149,8 @@ function clearCart() {
   surcharge.value = null
   discount.value = null
   selectedTable.value = null
+  customerName.value = ''
+  customerPhone.value = ''
 }
 
 /* 商品格右上角數量徽章用：menuItemId → 總數量 */
@@ -159,16 +165,20 @@ const cartQtyMap = computed(() => {
 /* ── 訂單層級附加資訊：標籤 / 備註 / 加價 / 折扣 ── */
 const selectedTagIds = ref([])
 const note            = ref('')
-const surcharge        = ref(null)   // { amount, reason } | null
-const discount         = ref(null)   // { type:'percent'|'amount', value } | null
+const surcharge        = ref(null)
+const discount         = ref(null)
+
+/* ── 外帶客戶資訊 ── */
+const customerName  = ref('')
+const customerPhone = ref('')
 
 const selectedTagObjects = computed(() =>
   tagStore.tags.filter(t => selectedTagIds.value.includes(t.id))
 )
 
 /* ── 內用 / 外帶 ── */
-const orderType      = ref('dine-in')   // 'dine-in' | 'takeout'
-const selectedTable   = ref(null)        // { id, name, status } | null
+const orderType      = ref('dine-in')
+const selectedTable   = ref(null)
 const showTablePicker = ref(false)
 const availableTables = ref([])
 const loadingTables   = ref(false)
@@ -176,6 +186,7 @@ const loadingTables   = ref(false)
 function handleOrderTypeChange(type) {
   orderType.value = type
   if (type === 'takeout') selectedTable.value = null
+  if (type === 'dine-in') { customerName.value = ''; customerPhone.value = '' }
 }
 
 async function openTablePicker() {
@@ -190,13 +201,11 @@ function selectTable(table) {
   showTablePicker.value = false
 }
 
-/* ── 金額計算（跟 OrderCartPanel 內部邏輯一致，組訂單資料用） ── */
+/* ── 金額計算 ── */
 const subtotal = computed(() =>
   cartItems.value.reduce((s, l) => s + l.price * l.qty, 0)
 )
-
 const surchargeAmount = computed(() => surcharge.value?.amount ?? 0)
-
 const discountAmount = computed(() => {
   if (!discount.value?.value) return 0
   const base = subtotal.value + surchargeAmount.value
@@ -204,7 +213,6 @@ const discountAmount = computed(() => {
     ? Math.round(base * (discount.value.value / 100))
     : Math.min(discount.value.value, base)
 })
-
 const total = computed(() =>
   Math.max(0, subtotal.value + surchargeAmount.value - discountAmount.value)
 )
@@ -213,42 +221,46 @@ const total = computed(() =>
 async function handleCharge() {
   if (cartItems.value.length === 0) return
 
-  /* 內用但還沒選桌：先跳選桌，不送出 */
   if (orderType.value === 'dine-in' && !selectedTable.value) {
     openTablePicker()
     return
   }
 
+  /* 先取得取單號，讓外帶佇列跟列印用同一個號碼 */
+  const pickupNumber = await getNextPickupNumber()
+
   const orderPayload = {
-    items: cartItems.value,
-    tags: selectedTagObjects.value,
-    note: note.value,
+    items:    cartItems.value,
+    tags:     selectedTagObjects.value,
+    note:     note.value,
     surcharge: surcharge.value,
-    discount: discount.value,
-    subtotal: subtotal.value,
-    total: total.value,
+    discount:  discount.value,
+    subtotal:  subtotal.value,
+    total:     total.value,
+    pickupNumber,
   }
 
   if (orderType.value === 'takeout') {
-    await takeoutStore.addOrder(orderPayload)
+    await takeoutStore.addOrder({
+      ...orderPayload,
+      customerName:  customerName.value,
+      customerPhone: customerPhone.value,
+    })
   } else {
     await markTableOrdered(selectedTable.value.id)
-    console.log('內用訂單', { ...orderPayload, table: selectedTable.value })
   }
 
-  /* 出單機列印：失敗只記 log，不擋結帳（印表機離線是常態，訂單照樣要送出去） */
-  const pickupNumber = await getNextPickupNumber()
   const printResult = await printOrderReceipt({
     pickupNumber,
     orderType: orderType.value,
     tableName: selectedTable.value?.name,
-    items: cartItems.value,
-    tags: selectedTagObjects.value,
-    note: note.value,
-    subtotal: subtotal.value,
+    items:     cartItems.value,
+    tags:      selectedTagObjects.value,
+    note:      note.value,
+    subtotal:  subtotal.value,
     surchargeAmount: surchargeAmount.value,
-    discountAmount: discountAmount.value,
-    total: total.value,
+    discountAmount:  discountAmount.value,
+    total:     total.value,
   })
   if (!printResult.success) {
     alert('訂單已送出，但出單機列印失敗，請確認出單機是否開機並連上網路。')

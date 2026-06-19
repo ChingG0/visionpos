@@ -2,8 +2,38 @@
   <aside class="ss">
 
     <nav class="ss__nav">
+
+      <!-- 營運報表：可展開的群組 -->
+      <div class="ss__group">
+        <button
+          class="ss__nav-item"
+          :class="{ 'ss__nav-item--active': route.name === 'Reports' }"
+          @click="handleReportsClick"
+        >
+          <IconReports class="ss__nav-icon" />
+          <span>營運報表</span>
+        </button>
+
+        <!-- 展開的子分頁 -->
+        <div v-if="reportsExpanded" class="ss__sub-nav">
+          <button
+            v-for="sub in REPORT_PAGES"
+            :key="sub.key"
+            class="ss__sub-item"
+            :class="{
+              'ss__sub-item--active': isActiveReportPage(sub.key),
+              'ss__sub-item--soon':   sub.soon
+            }"
+            @click="!sub.soon && goReportPage(sub.key)"
+          >
+            {{ sub.label }}
+          </button>
+        </div>
+      </div>
+
+      <!-- 其他後台導覽 -->
       <button
-        v-for="item in navItems"
+        v-for="item in otherNavItems"
         :key="item.id"
         class="ss__nav-item"
         :class="{ 'ss__nav-item--active': route.name === item.id }"
@@ -12,6 +42,7 @@
         <component :is="item.icon" class="ss__nav-icon" />
         <span>{{ item.label }}</span>
       </button>
+
     </nav>
 
     <div class="ss__spacer" />
@@ -24,11 +55,49 @@
 </template>
 
 <script setup>
-import { defineComponent, h } from 'vue'
+import { ref, computed, watch, defineComponent, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 const route  = useRoute()
 const router = useRouter()
+
+/* ── 報表子分頁 ── */
+const REPORT_PAGES = [
+  { key: 'revenue',      label: '營收總覽' },
+  { key: 'transactions', label: '交易紀錄' },
+  { key: 'products',     label: '商品分析' },
+  { key: 'tags',         label: '標籤分析' },
+  { key: 'discounts',    label: '折扣分析',   soon: true },
+  { key: 'customers',    label: '來客分析',   soon: true },
+]
+
+/* 展開/收折狀態：在報表頁面時預設展開 */
+const reportsExpanded = ref(route.name === 'Reports')
+
+watch(() => route.name, (name) => {
+  if (name === 'Reports') reportsExpanded.value = true
+}, { immediate: true })
+
+function handleReportsClick() {
+  if (route.name === 'Reports') {
+    /* 已在報表頁面：切換展開/收折 */
+    reportsExpanded.value = !reportsExpanded.value
+  } else {
+    /* 從其他頁面點入：展開並導航 */
+    reportsExpanded.value = true
+    router.push({ name: 'Reports', query: { page: 'revenue' } })
+  }
+}
+
+function goReportPage(key) {
+  router.push({ name: 'Reports', query: { page: key } })
+}
+
+function isActiveReportPage(key) {
+  if (route.name !== 'Reports') return false
+  const current = route.query.page || 'revenue'
+  return current === key
+}
 
 /* ── Icons ── */
 const IconReports = defineComponent({
@@ -74,8 +143,7 @@ const IconMembers = defineComponent({
   ])
 })
 
-const navItems = [
-  { id: 'Reports',           label: '營運報表', icon: IconReports },
+const otherNavItems = [
   { id: 'ProductManagement', label: '商品管理', icon: IconProducts },
   { id: 'OrderSettings',     label: '點餐設定', icon: IconOrderSettings },
   { id: 'Inventory',         label: '庫存管理', icon: IconInventory },
@@ -93,6 +161,7 @@ const navItems = [
   align-items: center;
   padding: 14px 0 12px;
   flex-shrink: 0;
+  overflow-y: auto;
 }
 
 .ss__nav {
@@ -103,6 +172,12 @@ const navItems = [
   gap: 4px;
 }
 
+.ss__group {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── 主項目（圖示+文字） ── */
 .ss__nav-item {
   width: 100%;
   height: 64px;
@@ -131,9 +206,43 @@ const navItems = [
   height: 22px;
 }
 
-.ss__spacer {
-  flex: 1;
+/* ── 子分頁列表（展開時出現） ── */
+.ss__sub-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 4px 6px;
 }
+
+.ss__sub-item {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  text-align: left;
+  color: var(--color-text-secondary);
+  transition: background 0.12s, color 0.12s;
+  white-space: nowrap;
+}
+
+.ss__sub-item:hover:not(.ss__sub-item--soon):not(.ss__sub-item--active) {
+  background: #e8dcc8;
+  color: var(--color-text-primary);
+}
+
+.ss__sub-item--active {
+  background: #fde8c0;
+  color: #8a6020;
+  font-weight: 500;
+}
+
+.ss__sub-item--soon {
+  color: #c0b090;
+  cursor: default;
+  font-size: 11px;
+}
+
+.ss__spacer { flex: 1; }
 
 .ss__back-btn {
   width: 70px;
@@ -145,7 +254,5 @@ const navItems = [
   color: var(--color-text-brand);
 }
 
-.ss__back-btn:hover {
-  background: #cfc0a4;
-}
+.ss__back-btn:hover { background: #cfc0a4; }
 </style>
