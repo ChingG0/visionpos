@@ -29,7 +29,7 @@
     <div class="sidebar__spacer" />
 
     <!-- Settings -->
-    <button class="sidebar__settings" @click="router.push({ name: 'ProductManagement' })">後台設定</button>
+    <button class="sidebar__settings" @click="router.push({ name: 'Reports' })">後台設定</button>
 
   </aside>
 </template>
