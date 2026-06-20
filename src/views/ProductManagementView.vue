@@ -122,11 +122,30 @@ function openEdit(item) {
   showModal.value = true
 }
 
-function handleSubmit(data) {
+import { supabase } from '@/lib/supabase.js'
+
+/* ── 儲存食材配方 ── */
+async function saveRecipes(productId, recipes) {
+  if (!productId) return
+  // 先刪除舊的配方
+  await supabase.from('product_ingredient_recipes').delete().eq('product_id', productId)
+  // 插入新的配方（過濾空行）
+  const rows = (recipes ?? [])
+    .filter(r => r.ingredientId && r.qty > 0)
+    .map(r => ({ product_id: productId, ingredient_id: r.ingredientId, qty_per_unit: r.qty }))
+  if (rows.length > 0) {
+    await supabase.from('product_ingredient_recipes').insert(rows)
+  }
+}
+
+async function handleSubmit(data) {
+  const { recipes, ...formData } = data
   if (editingItem.value) {
-    menuStore.updateItem(editingItem.value.id, data)
+    menuStore.updateItem(editingItem.value.id, formData)
+    await saveRecipes(editingItem.value.id, recipes)
   } else {
-    menuStore.addItem(data)
+    const newItem = await menuStore.addItem(formData)
+    await saveRecipes(newItem?.id, recipes)
   }
   showModal.value = false
 }

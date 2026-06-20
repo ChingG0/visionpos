@@ -111,6 +111,7 @@ export const useMenuStore = defineStore('menu', () => {
 
     items.value.push(newItem)        // 畫面先更新
     await persistItem(newItem)        // 背景寫入 Supabase
+    return newItem                    // 回傳供呼叫端存食材配方用
   }
 
   /* ── 編輯商品 ── */

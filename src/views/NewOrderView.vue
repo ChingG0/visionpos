@@ -82,15 +82,17 @@ import OrderCartPanel       from '@/components/order/OrderCartPanel.vue'
 import TablePickerModal     from '@/components/order/TablePickerModal.vue'
 import { useMenuStore }     from '@/stores/menuStore.js'
 import { useTagStore }      from '@/stores/tagStore.js'
-import { useTakeoutStore }  from '@/stores/takeoutStore.js'
+import { useTakeoutStore }    from '@/stores/takeoutStore.js'
+import { useInventoryStore }  from '@/stores/inventoryStore.js'
 import { fetchTables, markTableOrdered } from '@/lib/floorOrders.js'
 import { printOrderReceipt, getNextPickupNumber } from '@/lib/printer.js'
 import { useDineInStore } from '@/stores/dineInStore.js'
 
 const menuStore    = useMenuStore()
 const tagStore     = useTagStore()
-const takeoutStore = useTakeoutStore()
-const dineInStore  = useDineInStore()
+const takeoutStore    = useTakeoutStore()
+const inventoryStore  = useInventoryStore()
+const dineInStore     = useDineInStore()
 
 /* ── 分類 / 搜尋 ── */
 const activeCategoryId = ref(menuStore.categories[0]?.id ?? '')
@@ -110,7 +112,7 @@ const filteredItems = computed(() => {
 
 /* ── 購物車（之後可改 Pinia cartStore，目前先放本頁） ── */
 const cartItems = ref([])
-/* cart line: { id, menuItemId, name, price, qty, icon } */
+/* cart line: { id, menuItemId, code, name, price, qty, icon } */
 
 function handleAddItem(item) {
   const existing = cartItems.value.find(l => l.menuItemId === item.id)
@@ -118,12 +120,13 @@ function handleAddItem(item) {
     existing.qty += 1
   } else {
     cartItems.value.push({
-      id: `${item.id}-${Date.now()}`,
+      id:         `${item.id}-${Date.now()}`,
       menuItemId: item.id,
-      name: item.name,
-      price: item.price,
-      qty: 1,
-      icon: item.icon,
+      code:       item.code || '',   // 商品編號（A01, B02...），供列印排序用
+      name:       item.name,
+      price:      item.price,
+      qty:        1,
+      icon:       item.icon,
     })
   }
 }
@@ -243,19 +246,22 @@ async function handleCharge() {
   }
 
   if (orderType.value === 'takeout') {
-    await takeoutStore.addOrder({
+    const order = await takeoutStore.addOrder({
       ...orderPayload,
       customerName:  customerName.value,
       customerPhone: customerPhone.value,
     })
+    /* 背景扣庫存，不 await 避免拖慢結帳 */
+    if (order?.id) inventoryStore.deductByOrder(order.id, cartItems.value)
   } else {
-    /* 內用：標記座位狀態 + 存訂單到 dine_in_orders（供座位圖點擊查詢用） */
+    /* 內用：標記座位狀態 + 存訂單到 dine_in_orders */
     await markTableOrdered(selectedTable.value.id)
-    await dineInStore.addOrder({
+    const order = await dineInStore.addOrder({
       seatId:   selectedTable.value.id,
       seatName: selectedTable.value.name,
       ...orderPayload,
     })
+    if (order?.id) inventoryStore.deductByOrder(order.id, cartItems.value)
   }
 
   const printResult = await printOrderReceipt({

@@ -100,6 +100,7 @@ const DATE_OPTS = [
 const TYPE_OPTS = [
   { key: 'all',      label: '全部' },
   { key: 'takeout',  label: '外帶' },
+  { key: 'dine-in',  label: '內用' },
   { key: 'delivery', label: '外送' },
 ]
 

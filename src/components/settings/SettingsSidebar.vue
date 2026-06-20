@@ -76,7 +76,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, defineComponent, h } from 'vue'
+import { ref, watch, defineComponent, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 const route  = useRoute()

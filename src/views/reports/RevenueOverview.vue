@@ -36,6 +36,11 @@
         <p class="ro__kpi-sub">${{ fmtNum(takeoutRevenue) }}</p>
       </div>
       <div class="ro__kpi">
+        <p class="ro__kpi-label">內用筆數</p>
+        <p class="ro__kpi-value">{{ dineInCount }}</p>
+        <p class="ro__kpi-sub">${{ fmtNum(dineInRevenue) }}</p>
+      </div>
+      <div class="ro__kpi">
         <p class="ro__kpi-label">外送筆數</p>
         <p class="ro__kpi-value">{{ deliveryCount }}</p>
         <p class="ro__kpi-sub">${{ fmtNum(deliveryRevenue) }}</p>
@@ -104,8 +109,14 @@
         <span class="ro__type-pct">{{ takeoutPct }}%</span>
       </div>
       <div class="ro__type-track">
-        <div class="ro__type-fill ro__type-fill--takeout" :style="{ width: takeoutPct + '%' }" />
+        <div class="ro__type-fill ro__type-fill--takeout"  :style="{ width: takeoutPct  + '%' }" />
+        <div class="ro__type-fill ro__type-fill--dinein"   :style="{ width: dineInPct   + '%' }" />
         <div class="ro__type-fill ro__type-fill--delivery" :style="{ width: deliveryPct + '%' }" />
+      </div>
+      <div class="ro__type-bar-label">
+        <span class="ro__type-dot ro__type-dot--dinein" />內用
+        <strong>${{ fmtNum(dineInRevenue) }}</strong>
+        <span class="ro__type-pct">{{ dineInPct }}%</span>
       </div>
       <div class="ro__type-bar-label">
         <span class="ro__type-dot ro__type-dot--delivery" />外送
@@ -178,12 +189,16 @@ const totalRevenue   = computed(() => orders.value.reduce((s, o) => s + (o.total
 const avgOrderValue  = computed(() => orders.value.length ? Math.round(totalRevenue.value / orders.value.length) : 0)
 const takeoutOrders  = computed(() => orders.value.filter(o => o.orderType === 'takeout'))
 const deliveryOrders = computed(() => orders.value.filter(o => o.orderType === 'delivery'))
+const dineInOrders   = computed(() => orders.value.filter(o => o.orderType === 'dine-in'))
 const takeoutCount   = computed(() => takeoutOrders.value.length)
 const deliveryCount  = computed(() => deliveryOrders.value.length)
+const dineInCount    = computed(() => dineInOrders.value.length)
 const takeoutRevenue  = computed(() => takeoutOrders.value.reduce((s, o) => s + (o.total ?? 0), 0))
 const deliveryRevenue = computed(() => deliveryOrders.value.reduce((s, o) => s + (o.total ?? 0), 0))
-const takeoutPct  = computed(() => totalRevenue.value ? Math.round(takeoutRevenue.value / totalRevenue.value * 100) : 0)
-const deliveryPct = computed(() => 100 - takeoutPct.value)
+const dineInRevenue   = computed(() => dineInOrders.value.reduce((s, o) => s + (o.total ?? 0), 0))
+const takeoutPct  = computed(() => totalRevenue.value ? Math.round(takeoutRevenue.value  / totalRevenue.value * 100) : 0)
+const dineInPct   = computed(() => totalRevenue.value ? Math.round(dineInRevenue.value   / totalRevenue.value * 100) : 0)
+const deliveryPct = computed(() => totalRevenue.value ? Math.max(0, 100 - takeoutPct.value - dineInPct.value) : 0)
 
 /* ── 每日長條圖資料 ── */
 const chartData = computed(() => {
@@ -301,7 +316,7 @@ function fmtShort(n) {
 /* ── 指標卡片 ── */
 .ro__kpis {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 12px;
 }
 
@@ -386,6 +401,7 @@ function fmtShort(n) {
 }
 
 .ro__type-dot--takeout  { background: #e8a038; }
+.ro__type-dot--dinein   { background: #5a7a3a; }
 .ro__type-dot--delivery { background: #06c167; }
 
 .ro__type-pct {
@@ -403,5 +419,6 @@ function fmtShort(n) {
 }
 
 .ro__type-fill--takeout  { background: #e8a038; transition: width 0.4s; }
+.ro__type-fill--dinein   { background: #5a7a3a; transition: width 0.4s; }
 .ro__type-fill--delivery { background: #06c167; transition: width 0.4s; }
 </style>
