@@ -45,9 +45,16 @@
                 </div>
               </div>
 
-              <button class="dk__done-btn" @click="confirmComplete(order)">
-                確認<br>完成
-              </button>
+              <div class="dk__card-actions">
+                <button class="dk__done-btn" @click="confirmComplete(order)">
+                  確認<br>完成
+                </button>
+                <button class="dk__print-btn" :disabled="printingId === order.id" @click="handlePrint(order)" title="補印收據">
+                  <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 7V2h10v5"/><path d="M5 14H2V7h16v7h-3"/><path d="M5 14v4h10v-4"/>
+                  </svg>
+                </button>
+              </div>
             </div>
 
             <div class="dk__card-sub">
@@ -118,8 +125,30 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import AppSidebar     from '@/components/layout/AppSidebar.vue'
 import AppTopbar       from '@/components/layout/AppTopbar.vue'
 import { useDeliveryStore } from '@/stores/deliveryStore.js'
+import { printOrderReceipt } from '@/lib/printer.js'
 
 const deliveryStore = useDeliveryStore()
+
+/* ── 補印 ── */
+const printingId = ref(null)
+
+async function handlePrint(order) {
+  if (printingId.value) return
+  printingId.value = order.id
+  const result = await printOrderReceipt({
+    pickupNumber: order.pickupNumber,
+    orderType:    'delivery',
+    items:        order.items ?? [],
+    tags:         [],
+    note:         order.note  ?? '',
+    subtotal:     order.subtotal ?? 0,
+    surchargeAmount: 0,
+    discountAmount:  0,
+    total:        order.total ?? 0,
+  })
+  if (!result.success) alert('補印失敗，確認出單機是否開機並連上網路。')
+  printingId.value = null
+}
 
 onMounted(()  => deliveryStore.init())
 onUnmounted(() => deliveryStore.dispose())  // 清除 Realtime 訂閱
@@ -260,6 +289,14 @@ function formatOrderId(order) {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
+.dk__card-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
 .dk__done-btn {
   flex-shrink: 0; width: 52px; height: 52px; border-radius: 50%;
   background: #06c167; color: #fff; font-size: 13px; font-weight: 600;
@@ -267,6 +304,15 @@ function formatOrderId(order) {
   justify-content: center; text-align: center; transition: background 0.15s;
 }
 .dk__done-btn:hover { background: #04a857; }
+
+.dk__print-btn {
+  width: 30px; height: 30px; border-radius: 50%;
+  background: #f0e8d8; color: #7a6850; border: 1px solid #c8b89a;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.12s;
+}
+.dk__print-btn:hover:not(:disabled) { background: #e8dcc8; }
+.dk__print-btn:disabled { opacity: 0.5; }
 
 .dk__card-sub {
   display: flex; align-items: center; justify-content: space-between;

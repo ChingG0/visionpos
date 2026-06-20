@@ -8,7 +8,14 @@
             <span class="som-seat-badge">{{ seat.name }}</span>
             <span class="som-time">{{ elapsedTime }}</span>
           </div>
-          <button class="som-close" @click="emit('close')">×</button>
+          <div class="som-header-right">
+            <button v-if="order" class="som-print-icon" :disabled="printing" @click="handlePrint" title="補印收據">
+              <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 7V2h10v5"/><path d="M5 14H2V7h16v7h-3"/><path d="M5 14v4h10v-4"/>
+              </svg>
+            </button>
+            <button class="som-close" @click="emit('close')">×</button>
+          </div>
         </div>
 
         <!-- 載入中 -->
@@ -77,7 +84,7 @@
           </div>
 
           <div class="som-footer">
-            <button class="som-btn-cancel" @click="emit('close')">取消</button>
+            <button class="som-btn-cancel-order" @click="showCancelModal = true">取消訂單</button>
             <button class="som-btn-complete" :disabled="completing" @click="handleComplete">
               {{ completing ? '處理中...' : '✓ 完成結帳' }}
             </button>
@@ -86,6 +93,35 @@
 
       </div>
     </div>
+
+    <!-- 取消訂單確認視窗 -->
+    <div v-if="showCancelModal" class="som-cancel-backdrop" @click.self="showCancelModal = false">
+      <div class="som-cancel-box">
+        <p class="som-cancel-title">確認取消訂單？</p>
+        <p class="som-cancel-seat">座位：{{ seat.name }}</p>
+
+        <div class="som-cancel-field">
+          <label class="som-cancel-label">取消原因 <span class="som-cancel-req">*</span></label>
+          <input v-model="cancelReason" class="som-cancel-input" type="text"
+            placeholder="例：客人臨時離開、點錯餐點..." />
+        </div>
+        <div class="som-cancel-field">
+          <label class="som-cancel-label">操作人員帳號 <span class="som-cancel-req">*</span></label>
+          <input v-model="cancelStaff" class="som-cancel-input" type="text"
+            placeholder="請輸入人員帳號..." />
+        </div>
+
+        <div class="som-cancel-actions">
+          <button class="som-cancel-back" @click="showCancelModal = false">返回</button>
+          <button class="som-cancel-confirm"
+            :disabled="!cancelReason.trim() || !cancelStaff.trim() || cancelling"
+            @click="handleCancelConfirm">
+            {{ cancelling ? '處理中...' : '確認取消' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
   </Teleport>
 </template>
 
@@ -94,6 +130,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useDineInStore }   from '@/stores/dineInStore.js'
 import { resetSeatStatus }  from '@/lib/floorOrders.js'
 import { TAG_COLOR_MAP }    from '@/constants/tagColors.js'
+import { printOrderReceipt } from '@/lib/printer.js'
 
 const props = defineProps({
   seat: { type: Object, required: true },   // { id, name, status, type }
@@ -104,6 +141,56 @@ const emit = defineEmits(['close', 'completed'])
 const dineInStore = useDineInStore()
 const loading     = ref(true)
 const completing  = ref(false)
+const printing    = ref(false)
+
+/* ── 取消訂單 ── */
+const showCancelModal = ref(false)
+const cancelReason    = ref('')
+const cancelStaff     = ref('')
+const cancelling      = ref(false)
+
+async function handleCancelConfirm() {
+  if (!order.value || cancelling.value) return
+  if (!cancelReason.value.trim() || !cancelStaff.value.trim()) return
+  cancelling.value = true
+  const ok = await dineInStore.cancelOrder(order.value.id, props.seat.id, {
+    reason: cancelReason.value.trim(),
+    staff:  cancelStaff.value.trim(),
+  })
+  if (ok) {
+    await resetSeatStatus(props.seat.id)
+    emit('completed', props.seat.id)
+    emit('close')
+  }
+  cancelling.value = false
+  showCancelModal.value = false
+}
+
+/* 補印 */
+async function handlePrint() {
+  if (!order.value || printing.value) return
+  printing.value = true
+  const o = order.value
+  const surchargeAmount = o.surcharge?.amount ?? 0
+  const base = (o.subtotal ?? 0) + surchargeAmount
+  const discountAmount = o.discount?.value
+    ? (o.discount.type === 'percent' ? Math.round(base * o.discount.value / 100) : Math.min(o.discount.value, base))
+    : 0
+  const result = await printOrderReceipt({
+    pickupNumber: null,
+    orderType:    'dine-in',
+    tableName:    props.seat.name,
+    items:        o.items ?? [],
+    tags:         o.tags  ?? [],
+    note:         o.note  ?? '',
+    subtotal:     o.subtotal ?? 0,
+    surchargeAmount,
+    discountAmount,
+    total:        o.total ?? 0,
+  })
+  if (!result.success) alert('補印失敗，確認出單機是否開機並連上網路。')
+  printing.value = false
+}
 const order       = ref(null)
 
 onMounted(async () => {
@@ -178,6 +265,16 @@ async function handleReset() {
 }
 
 .som-header-left { display: flex; align-items: center; gap: 10px; }
+.som-header-right { display: flex; align-items: center; gap: 6px; }
+
+.som-print-icon {
+  width: 30px; height: 30px; border-radius: 50%;
+  background: #f0e8d8; color: #7a6850; border: 1px solid #c8b89a;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.12s;
+}
+.som-print-icon:hover:not(:disabled) { background: #e8dcc8; }
+.som-print-icon:disabled { opacity: 0.5; }
 
 .som-seat-badge {
   font-size: 15px; font-weight: 600;
@@ -249,12 +346,66 @@ async function handleReset() {
   flex-shrink: 0;
 }
 
-.som-btn-cancel {
+.som-btn-cancel-order {
   flex: 1; padding: 10px;
   border-radius: 10px; font-size: 13px;
-  color: #7a6850; background: #f0e8d8; border: 1px solid #c8b89a;
+  color: #c0392b; background: #fff0ee; border: 1px solid #f0c0b8;
+  transition: background 0.12s;
 }
-.som-btn-cancel:hover { background: #e8dcc8; }
+.som-btn-cancel-order:hover { background: #fde0dc; }
+
+/* 取消視窗 */
+.som-cancel-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 10000;
+}
+
+.som-cancel-box {
+  background: #fff; border-radius: 16px; width: 320px;
+  padding: 20px; box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+  font-family: 'Noto Sans TC','PingFang TC',sans-serif;
+  display: flex; flex-direction: column; gap: 14px;
+}
+
+.som-cancel-title {
+  font-size: 16px; font-weight: 700; color: #c0392b;
+}
+
+.som-cancel-seat { font-size: 13px; color: var(--color-text-secondary); margin-top: -8px; }
+
+.som-cancel-field { display: flex; flex-direction: column; gap: 5px; }
+
+.som-cancel-label {
+  font-size: 12.5px; font-weight: 500; color: #5a4030;
+}
+
+.som-cancel-req { color: #c0392b; }
+
+.som-cancel-input {
+  padding: 8px 10px;
+  border: 1.5px solid #c8b89a; border-radius: 8px;
+  font-size: 13.5px; color: #1a0800; background: #faf5ec;
+  outline: none; font-family: inherit; transition: border-color 0.15s;
+}
+.som-cancel-input:focus { border-color: #c0392b; }
+
+.som-cancel-actions { display: flex; gap: 8px; margin-top: 4px; }
+
+.som-cancel-back {
+  flex: 1; padding: 10px; border-radius: 10px;
+  font-size: 13px; color: #7a6850; background: #f0e8d8; border: 1px solid #c8b89a;
+}
+.som-cancel-back:hover { background: #e8dcc8; }
+
+.som-cancel-confirm {
+  flex: 2; padding: 10px; border-radius: 10px;
+  font-size: 14px; font-weight: 600; color: #fff; background: #c0392b; border: none;
+  transition: background 0.12s;
+}
+.som-cancel-confirm:hover:not(:disabled) { background: #a93226; }
+.som-cancel-confirm:disabled { opacity: 0.5; }
 
 .som-btn-complete {
   flex: 2; padding: 10px;

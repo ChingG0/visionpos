@@ -46,19 +46,23 @@
               <span class="tk__card-num">{{ String(idx + 1).padStart(2, '0') }}</span>
 
               <div class="tk__card-info">
-                <div class="tk__card-id">訂單號：#{{ formatOrderId(order) }}</div>
-                <div v-if="order.customerName"  class="tk__card-customer">訂購人：{{ order.customerName }}</div>
+                <div v-if="order.customerName"  class="tk__card-customer tk__card-customer--name">取餐人：{{ order.customerName }}</div>
                 <div v-if="order.customerPhone" class="tk__card-customer">電話：{{ order.customerPhone }}</div>
               </div>
 
-              <button class="tk__done-btn" @click="confirmComplete(order)">
-                完成<br>取餐
-              </button>
+              <div class="tk__card-actions">
+                <button class="tk__done-btn" @click="confirmComplete(order)">完成<br>取餐</button>
+                <button class="tk__print-btn" :disabled="printingId === order.id" @click="handlePrint(order)" title="補印收據">
+                  <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 7V2h10v5"/><path d="M5 14H2V7h16v7h-3"/><path d="M5 14v4h10v-4"/>
+                  </svg>
+                </button>
+              </div>
             </div>
 
             <!-- 時間 + 金額 -->
             <div class="tk__card-sub">
-              <span class="tk__card-elapsed">
+              <span class="tk__card-elapsed" :class="{ 'tk__card-elapsed--warn': isLongWait(order.createdAt) }">
                 <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5">
                   <circle cx="8" cy="8" r="6.5"/>
                   <path d="M8 4.5V8l2.5 2"/>
@@ -142,12 +146,39 @@ import AppTopbar   from '@/components/layout/AppTopbar.vue'
 import { useTakeoutStore } from '@/stores/takeoutStore.js'
 import { useMemberStore }  from '@/stores/memberStore.js'
 import { TAG_COLOR_MAP }   from '@/constants/tagColors.js'
+import { printOrderReceipt } from '@/lib/printer.js'
 
 const takeoutStore = useTakeoutStore()
 const memberStore  = useMemberStore()
 
 function tagColorOf(tag) {
   return TAG_COLOR_MAP[tag.color] ?? TAG_COLOR_MAP.gray
+}
+
+/* ── 補印 ── */
+const printingId = ref(null)
+
+async function handlePrint(order) {
+  if (printingId.value) return
+  printingId.value = order.id
+  const surchargeAmount = order.surcharge?.amount ?? 0
+  const base = (order.subtotal ?? 0) + surchargeAmount
+  const discountAmount = order.discount?.value
+    ? (order.discount.type === 'percent' ? Math.round(base * order.discount.value / 100) : Math.min(order.discount.value, base))
+    : 0
+  const result = await printOrderReceipt({
+    pickupNumber: order.pickupNumber,
+    orderType:    'takeout',
+    items:        order.items ?? [],
+    tags:         order.tags  ?? [],
+    note:         order.note  ?? '',
+    subtotal:     order.subtotal ?? 0,
+    surchargeAmount,
+    discountAmount,
+    total:        order.total ?? 0,
+  })
+  if (!result.success) alert('補印失敗，確認出單機是否開機並連上網路。')
+  printingId.value = null
 }
 
 /* ── 檢視模式：compact = 3 欄，expanded = 2 欄 ── */
@@ -193,7 +224,12 @@ function elapsedTime(createdAt) {
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
 }
 
-/* ── 訂單 ID 格式化 ── */
+/* 等候超過 10 分鐘顯示橙色警告 */
+function isLongWait(createdAt) {
+  if (!createdAt) return false
+  return (now.value - new Date(createdAt).getTime()) > 10 * 60 * 1000
+}
+
 function formatOrderId(order) {
   if (order.pickupNumber && order.createdAt) {
     const d = new Date(order.createdAt)
@@ -365,6 +401,14 @@ function formatOrderId(order) {
   margin-top: 2px;
 }
 
+.tk__card-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .tk__done-btn {
   flex-shrink: 0;
   width: 52px;
@@ -384,6 +428,21 @@ function formatOrderId(order) {
 
 .tk__done-btn:hover { background: #2a6a2a; }
 
+.tk__print-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #f0e8d8;
+  color: #7a6850;
+  border: 1px solid #c8b89a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s;
+}
+.tk__print-btn:hover:not(:disabled) { background: #e8dcc8; }
+.tk__print-btn:disabled { opacity: 0.5; }
+
 .tk__card-sub {
   display: flex;
   align-items: center;
@@ -402,7 +461,12 @@ function formatOrderId(order) {
   font-size: 14px;   /* +2 */
   color: var(--color-text-secondary);
   font-variant-numeric: tabular-nums;
+  transition: color 0.2s;
 }
+
+.tk__card-elapsed--warn { color: #e07020; font-weight: 600; }
+
+.tk__card-customer--name { font-weight: 500; color: var(--color-text-primary); }
 
 .tk__card-total {
   font-size: 16px;   /* +2 */

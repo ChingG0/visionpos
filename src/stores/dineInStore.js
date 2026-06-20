@@ -65,5 +65,20 @@ export const useDineInStore = defineStore('dineInOrders', () => {
     return true
   }
 
-  return { activeOrders, loading, init, addOrder, getOrderBySeatId, completeOrder }
+  /* 取消訂單：記錄原因與操作人員、重置座位 */
+  async function cancelOrder(orderId, seatId, { reason, staff }) {
+    const { error } = await supabase
+      .from('dine_in_orders')
+      .update({
+        status:       'cancelled',
+        completed_at: new Date().toISOString(),
+        note:         `[取消] 原因：${reason}　操作：${staff}`,
+      })
+      .eq('id', orderId)
+    if (error) { console.error('[dineInStore] 取消失敗', error); return false }
+    delete activeOrders.value[seatId]
+    return true
+  }
+
+  return { activeOrders, loading, init, addOrder, getOrderBySeatId, completeOrder, cancelOrder }
 })

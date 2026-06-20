@@ -32,16 +32,37 @@
       </div>
 
       <!-- 其他後台導覽 -->
-      <button
-        v-for="item in otherNavItems"
-        :key="item.id"
-        class="ss__nav-item"
-        :class="{ 'ss__nav-item--active': route.name === item.id }"
-        @click="router.push({ name: item.id })"
-      >
-        <component :is="item.icon" class="ss__nav-icon" />
-        <span>{{ item.label }}</span>
-      </button>
+      <template v-for="item in otherNavItems" :key="item.id">
+        <!-- 設備管理：可展開 -->
+        <div v-if="item.isDevice" class="ss__group">
+          <button
+            class="ss__nav-item"
+            :class="{ 'ss__nav-item--active': route.name === 'DeviceManagement' }"
+            @click="handleDeviceClick"
+          >
+            <component :is="item.icon" class="ss__nav-icon" />
+            <span>{{ item.label }}</span>
+          </button>
+          <div v-if="deviceExpanded" class="ss__sub-nav">
+            <button
+              v-for="sub in DEVICE_PAGES"
+              :key="sub.key"
+              class="ss__sub-item"
+              :class="{ 'ss__sub-item--active': isActiveDevicePage(sub.key) }"
+              @click="goDevicePage(sub.key)"
+            >{{ sub.label }}</button>
+          </div>
+        </div>
+        <!-- 一般項目 -->
+        <button v-else
+          class="ss__nav-item"
+          :class="{ 'ss__nav-item--active': route.name === item.id }"
+          @click="router.push({ name: item.id })"
+        >
+          <component :is="item.icon" class="ss__nav-icon" />
+          <span>{{ item.label }}</span>
+        </button>
+      </template>
 
     </nav>
 
@@ -55,7 +76,7 @@
 </template>
 
 <script setup>
-import { ref, watch, defineComponent, h } from 'vue'
+import { ref, computed, watch, defineComponent, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 const route  = useRoute()
@@ -99,7 +120,41 @@ function isActiveReportPage(key) {
   return current === key
 }
 
-/* ── Icons ── */
+/* ── 設備管理子分頁 ── */
+const DEVICE_PAGES = [
+  { key: 'printer', label: '出單機設定' },
+]
+
+const deviceExpanded = ref(route.name === 'DeviceManagement')
+
+watch(() => route.name, (name) => {
+  if (name === 'DeviceManagement') deviceExpanded.value = true
+}, { immediate: true })
+
+function handleDeviceClick() {
+  if (route.name === 'DeviceManagement') {
+    deviceExpanded.value = !deviceExpanded.value
+  } else {
+    deviceExpanded.value = true
+    router.push({ name: 'DeviceManagement', query: { page: 'printer' } })
+  }
+}
+
+function goDevicePage(key) {
+  router.push({ name: 'DeviceManagement', query: { page: key } })
+}
+
+function isActiveDevicePage(key) {
+  return route.name === 'DeviceManagement' && (route.query.page || 'printer') === key
+}
+const IconDevice = defineComponent({
+  render: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
+    h('rect', { x: '2', y: '3', width: '20', height: '14', rx: '2' }),
+    h('line', { x1: '8', y1: '21', x2: '16', y2: '21' }),
+    h('line', { x1: '12', y1: '17', x2: '12', y2: '21' }),
+  ])
+})
+
 const IconReports = defineComponent({
   render: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
     h('line', { x1: '5',  y1: '20', x2: '5',  y2: '11' }),
@@ -148,6 +203,7 @@ const otherNavItems = [
   { id: 'OrderSettings',     label: '點餐設定', icon: IconOrderSettings },
   { id: 'Inventory',         label: '庫存管理', icon: IconInventory },
   { id: 'MemberManagement',  label: '會員管理', icon: IconMembers },
+  { id: 'DeviceManagement',  label: '設備管理', icon: IconDevice,  isDevice: true },
 ]
 </script>
 

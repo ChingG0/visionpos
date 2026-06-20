@@ -6,11 +6,12 @@ import TakeoutView     from '@/views/TakeoutView.vue'
 import DeliveryView    from '@/views/DeliveryView.vue'
 import ReservationView from '@/views/ReservationView.vue'
 
-import ProductManagementView from '@/views/ProductManagementView.vue'
-import OrderSettingsView     from '@/views/OrderSettingsView.vue'
-import ReportsView           from '@/views/ReportsView.vue'
-import InventoryView         from '@/views/InventoryView.vue'
-import MemberManagementView  from '@/views/MemberManagementView.vue'
+import ProductManagementView  from '@/views/ProductManagementView.vue'
+import OrderSettingsView      from '@/views/OrderSettingsView.vue'
+import ReportsView            from '@/views/ReportsView.vue'
+import InventoryView          from '@/views/InventoryView.vue'
+import MemberManagementView   from '@/views/MemberManagementView.vue'
+import DeviceManagementView   from '@/views/DeviceManagementView.vue'
 
 const routes = [
   { path: '/', redirect: { name: 'NewOrder' } },
@@ -28,6 +29,7 @@ const routes = [
   { path: '/settings/reports',   name: 'Reports',           component: ReportsView },
   { path: '/settings/inventory', name: 'Inventory',         component: InventoryView },
   { path: '/settings/members',   name: 'MemberManagement',  component: MemberManagementView },
+  { path: '/settings/device',    name: 'DeviceManagement',  component: DeviceManagementView },
 ]
 
 export default createRouter({
