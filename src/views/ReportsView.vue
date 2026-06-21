@@ -10,6 +10,8 @@
         <TransactionRecords v-if="currentPage === 'transactions'" />
         <ProductAnalysis    v-if="currentPage === 'products'"     />
         <TagAnalysis        v-if="currentPage === 'tags'"         />
+        <DiscountAnalysis   v-if="currentPage === 'discounts'"    />
+        <CustomerAnalysis   v-if="currentPage === 'customers'"    />
       </div>
     </div>
   </div>
@@ -24,31 +26,15 @@ import RevenueOverview    from '@/views/reports/RevenueOverview.vue'
 import TransactionRecords from '@/views/reports/TransactionRecords.vue'
 import ProductAnalysis    from '@/views/reports/ProductAnalysis.vue'
 import TagAnalysis        from '@/views/reports/TagAnalysis.vue'
+import DiscountAnalysis   from '@/views/reports/DiscountAnalysis.vue'
+import CustomerAnalysis   from '@/views/reports/CustomerAnalysis.vue'
 
 const route = useRoute()
-
-/* route.query.page 決定顯示哪個報表，預設「營收總覽」 */
 const currentPage = computed(() => route.query.page || 'revenue')
 </script>
 
 <style scoped>
-.rv {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  overflow: hidden;
-}
-
-.rv__main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.rv__content {
-  flex: 1;
-  overflow-y: auto;
-  background: var(--color-bg-map);
-}
+.rv { width: 100%; height: 100%; display: flex; overflow: hidden; }
+.rv__main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.rv__content { flex: 1; overflow-y: auto; background: var(--color-bg-map); }
 </style>

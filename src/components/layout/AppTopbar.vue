@@ -16,8 +16,16 @@
     <div v-else-if="title" class="topbar__title">{{ title }}</div>
     <div v-else class="topbar__spacer" />
 
-    <!-- Status Pill -->
-    <div class="topbar__status-pill">
+    <!-- 右側群組：user info + status pill 永遠固定在右邊 -->
+    <div class="topbar__right">
+      <div v-if="authStore.isLoggedIn" class="topbar__user">
+        <span class="topbar__store-name">{{ authStore.store?.name }}</span>
+        <span class="topbar__user-name">{{ authStore.user?.name }}</span>
+        <button class="topbar__logout-btn" @click="handleLogout">登出</button>
+      </div>
+
+      <!-- Status Pill -->
+      <div class="topbar__status-pill">
       <button
         class="topbar__status-btn"
         :aria-label="isPrinterOnline ? '出單機已連線，點擊設定' : '出單機未連線，點擊設定'"
@@ -47,7 +55,8 @@
       </svg>
 
       <span class="topbar__datetime">{{ formattedDateTime }}</span>
-    </div>
+      </div>
+    </div><!-- /topbar__right -->
 
     <PrinterSettingsModal
       v-if="showPrinterSettings"
@@ -60,8 +69,20 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { checkPrinterStatus } from '@/lib/printer.js'
 import PrinterSettingsModal from './PrinterSettingsModal.vue'
+import { useAuthStore } from '@/stores/authStore.js'
+
+const router    = useRouter()
+const authStore = useAuthStore()
+
+const ROLE_LABELS = { owner: '老闆', manager: '主管', cashier: '收銀員' }
+
+function handleLogout() {
+  authStore.logout()
+  router.replace({ name: 'Login' })
+}
 
 defineProps({
   activeFloor:    { type: String,  default: '1F' },
@@ -82,12 +103,17 @@ const showPrinterSettings = ref(false)
 const isOnline = ref(navigator.onLine)
 function updateOnlineStatus() { isOnline.value = navigator.onLine }
 
-/* ── 出單機連線狀態：定期 ping ── */
+/* ── 出單機連線狀態：自適應輪詢（連線時 30s，離線時 90s）── */
 const isPrinterOnline = ref(false)
 let printerTimer = null
 
+const POLL_ONLINE  = 30_000  // 確認連線後 30s 再確認
+const POLL_OFFLINE = 90_000  // 離線時 90s 才重試，減少 console 錯誤
+
 async function pollPrinterStatus() {
+  clearTimeout(printerTimer)
   isPrinterOnline.value = await checkPrinterStatus()
+  printerTimer = setTimeout(pollPrinterStatus, isPrinterOnline.value ? POLL_ONLINE : POLL_OFFLINE)
 }
 
 onMounted(() => {
@@ -96,13 +122,13 @@ onMounted(() => {
   window.addEventListener('online', updateOnlineStatus)
   window.addEventListener('offline', updateOnlineStatus)
 
-  pollPrinterStatus()
-  printerTimer = setInterval(pollPrinterStatus, 15000)
+  // 延遲 2s 再初始 poll，避免頁面一開啟就送出多次 POST
+  printerTimer = setTimeout(pollPrinterStatus, 2000)
 })
 
 onUnmounted(() => {
   clearInterval(timer)
-  clearInterval(printerTimer)
+  clearTimeout(printerTimer)
   window.removeEventListener('online', updateOnlineStatus)
   window.removeEventListener('offline', updateOnlineStatus)
 })
@@ -161,6 +187,12 @@ const formattedDateTime = computed(() => {
   flex: 1;
 }
 
+.topbar__right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .topbar__status-pill {
   background: var(--color-bg-status-pill);
   border: 1px solid var(--color-border-status-pill);
@@ -203,4 +235,35 @@ const formattedDateTime = computed(() => {
   color: var(--color-text-brand);
   white-space: nowrap;
 }
+
+.topbar__user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 10px;
+}
+
+.topbar__store-name {
+  font-size: 13px;
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+.topbar__user-name {
+  font-size: 13px;
+  color: var(--color-text-primary);
+}
+
+.topbar__logout-btn {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-btn);
+  background: var(--color-bg-settings);
+  color: var(--color-text-brand);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.topbar__logout-btn:hover { background: #fde2e2; color: #c0392b; border-color: #f0c0b8; }
 </style>

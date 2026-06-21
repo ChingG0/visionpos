@@ -1,20 +1,23 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
-import NewOrderView    from '@/views/NewOrderView.vue'
-import DineInView      from '@/views/DineInView.vue'
-import TakeoutView     from '@/views/TakeoutView.vue'
-import DeliveryView    from '@/views/DeliveryView.vue'
-import ReservationView from '@/views/ReservationView.vue'
+import LoginView          from '@/views/LoginView.vue'
+import NewOrderView       from '@/views/NewOrderView.vue'
+import DineInView         from '@/views/DineInView.vue'
+import TakeoutView        from '@/views/TakeoutView.vue'
+import DeliveryView       from '@/views/DeliveryView.vue'
+import ReservationView    from '@/views/ReservationView.vue'
 
-import ProductManagementView  from '@/views/ProductManagementView.vue'
-import OrderSettingsView      from '@/views/OrderSettingsView.vue'
-import ReportsView            from '@/views/ReportsView.vue'
-import InventoryView          from '@/views/InventoryView.vue'
-import MemberManagementView   from '@/views/MemberManagementView.vue'
-import DeviceManagementView   from '@/views/DeviceManagementView.vue'
+import ProductManagementView from '@/views/ProductManagementView.vue'
+import OrderSettingsView     from '@/views/OrderSettingsView.vue'
+import ReportsView           from '@/views/ReportsView.vue'
+import InventoryView         from '@/views/InventoryView.vue'
+import MemberManagementView  from '@/views/MemberManagementView.vue'
+import DeviceManagementView  from '@/views/DeviceManagementView.vue'
+import StaffManagementView   from '@/views/StaffManagementView.vue'
 
 const routes = [
-  { path: '/', redirect: { name: 'NewOrder' } },
+  { path: '/login', name: 'Login', component: LoginView, meta: { public: true } },
+  { path: '/',      redirect: { name: 'NewOrder' } },
 
   /* 主功能 */
   { path: '/new-order',   name: 'NewOrder',    component: NewOrderView },
@@ -30,9 +33,23 @@ const routes = [
   { path: '/settings/inventory', name: 'Inventory',         component: InventoryView },
   { path: '/settings/members',   name: 'MemberManagement',  component: MemberManagementView },
   { path: '/settings/device',    name: 'DeviceManagement',  component: DeviceManagementView },
+  { path: '/settings/staff',     name: 'StaffManagement',   component: StaffManagementView },
 ]
 
-export default createRouter({
+const router = createRouter({
   history: createWebHistory(),
   routes,
 })
+
+/* ── 導航守衛：未登入強制跳 Login ── */
+router.beforeEach((to) => {
+  const raw = localStorage.getItem('visionpos_auth')
+  const isLoggedIn = (() => {
+    try { const { s, u } = JSON.parse(raw ?? '{}'); return !!s && !!u } catch { return false }
+  })()
+
+  if (!to.meta.public && !isLoggedIn) return { name: 'Login' }
+  if (to.name === 'Login' && isLoggedIn) return { name: 'NewOrder' }
+})
+
+export default router

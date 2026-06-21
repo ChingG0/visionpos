@@ -68,9 +68,11 @@
 
     <div class="ss__spacer" />
 
-    <button class="ss__back-btn" @click="router.push({ name: 'NewOrder' })">
-      點餐頁
-    </button>
+    <div class="ss__back-wrap">
+      <button class="ss__back-btn" @click="router.push({ name: 'NewOrder' })">
+        點餐頁
+      </button>
+    </div>
 
   </aside>
 </template>
@@ -78,9 +80,11 @@
 <script setup>
 import { ref, watch, defineComponent, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/authStore.js'
 
-const route  = useRoute()
-const router = useRouter()
+const route     = useRoute()
+const router    = useRouter()
+const authStore = useAuthStore()
 
 /* ── 報表子分頁 ── */
 const REPORT_PAGES = [
@@ -88,11 +92,10 @@ const REPORT_PAGES = [
   { key: 'transactions', label: '交易紀錄' },
   { key: 'products',     label: '商品分析' },
   { key: 'tags',         label: '標籤分析' },
-  { key: 'discounts',    label: '折扣分析',   soon: true },
-  { key: 'customers',    label: '來客分析',   soon: true },
+  { key: 'discounts',    label: '折扣分析' },
+  { key: 'customers',    label: '來客分析' },
 ]
 
-/* 展開/收折狀態：在報表頁面時預設展開 */
 const reportsExpanded = ref(route.name === 'Reports')
 
 watch(() => route.name, (name) => {
@@ -101,10 +104,8 @@ watch(() => route.name, (name) => {
 
 function handleReportsClick() {
   if (route.name === 'Reports') {
-    /* 已在報表頁面：切換展開/收折 */
     reportsExpanded.value = !reportsExpanded.value
   } else {
-    /* 從其他頁面點入：展開並導航 */
     reportsExpanded.value = true
     router.push({ name: 'Reports', query: { page: 'revenue' } })
   }
@@ -147,6 +148,14 @@ function goDevicePage(key) {
 function isActiveDevicePage(key) {
   return route.name === 'DeviceManagement' && (route.query.page || 'printer') === key
 }
+
+/* ── 登出 ── */
+function handleLogout() {
+  authStore.logout()
+  router.replace({ name: 'Login' })
+}
+
+/* ── Icons ── */
 const IconDevice = defineComponent({
   render: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
     h('rect', { x: '2', y: '3', width: '20', height: '14', rx: '2' }),
@@ -198,12 +207,22 @@ const IconMembers = defineComponent({
   ])
 })
 
+const IconStaff = defineComponent({
+  render: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
+    h('circle', { cx: '12', cy: '8', r: '3.5' }),
+    h('path', { d: 'M5 20a7 7 0 0114 0' }),
+    h('path', { d: 'M18 3v4' }),
+    h('path', { d: 'M16 5h4' }),
+  ])
+})
+
 const otherNavItems = [
   { id: 'ProductManagement', label: '商品管理', icon: IconProducts },
   { id: 'OrderSettings',     label: '點餐設定', icon: IconOrderSettings },
   { id: 'Inventory',         label: '庫存管理', icon: IconInventory },
   { id: 'MemberManagement',  label: '會員管理', icon: IconMembers },
-  { id: 'DeviceManagement',  label: '設備管理', icon: IconDevice,  isDevice: true },
+  { id: 'StaffManagement',   label: '員工管理', icon: IconStaff },
+  { id: 'DeviceManagement',  label: '設備管理', icon: IconDevice, isDevice: true },
 ]
 </script>
 
@@ -298,17 +317,21 @@ const otherNavItems = [
   font-size: 11px;
 }
 
-.ss__spacer { flex: 1; }
+.ss__spacer { flex: 1; min-height: 0; }
+
+.ss__back-wrap {
+  padding: 8px 10px;
+  flex-shrink: 0;
+}
 
 .ss__back-btn {
-  width: 70px;
+  width: 78px;
   height: 30px;
   background: var(--color-bg-settings);
   border: 1px solid var(--color-border-btn);
   border-radius: var(--radius-sm);
-  font-size: var(--fs-base);
+  font-size: 11px;
   color: var(--color-text-brand);
 }
-
 .ss__back-btn:hover { background: #cfc0a4; }
 </style>

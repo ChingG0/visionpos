@@ -14,23 +14,29 @@ import { useReservationStore } from '@/stores/reservationStore.js'
 import { useMemberStore }      from '@/stores/memberStore.js'
 import { useTagStore }         from '@/stores/tagStore.js'
 import { useTakeoutStore }     from '@/stores/takeoutStore.js'
+import { useAuthStore }        from '@/stores/authStore.js'
 
 const menuStore        = useMenuStore()
 const reservationStore = useReservationStore()
 const memberStore      = useMemberStore()
 const tagStore         = useTagStore()
 const takeoutStore     = useTakeoutStore()
+const authStore        = useAuthStore()
 
 const isLoading = computed(() => menuStore.loading || reservationStore.loading)
 
 onMounted(() => {
-  menuStore.init()
-  reservationStore.init()
-  memberStore.init()
-  tagStore.init()
-  takeoutStore.init()
-  /* deliveryStore 的 init 在 DeliveryView onMounted 呼叫，
-     因為 Realtime 訂閱只在外送頁面開著時才需要 */
+  /* 還原登入狀態（從 localStorage） */
+  authStore.restore()
+
+  /* 只有登入後才需要初始化業務資料 */
+  if (authStore.isLoggedIn) {
+    menuStore.init()
+    reservationStore.init()
+    memberStore.init()
+    tagStore.init()
+    takeoutStore.init()
+  }
 })
 </script>
 

@@ -222,7 +222,7 @@ const chartData = computed(() => {
 const maxTotal = computed(() => Math.max(...chartData.value.map(d => d.total), 1))
 
 /* ── SVG 尺寸 ── */
-const svgW    = computed(() => Math.max(chartData.value.length * 50, 300))
+const svgW    = computed(() => Math.max(chartData.value.length * 80, 480))
 const svgH    = 200
 const PAD_L   = 36
 const PAD_R   = 8
@@ -230,8 +230,8 @@ const PAD_T   = 20
 const PAD_B   = 18
 const innerH  = computed(() => svgH - PAD_T - PAD_B)
 const barStep = computed(() => (svgW.value - PAD_L - PAD_R) / Math.max(chartData.value.length, 1))
-const barGap  = computed(() => barStep.value * 0.15)
-const barW    = computed(() => barStep.value - barGap.value * 2)
+const barGap  = computed(() => barStep.value * 0.25)
+const barW    = computed(() => Math.min(barStep.value - barGap.value * 2, 36))
 
 function yPos(val) {
   return PAD_T + innerH.value * (1 - val / maxTotal.value)
