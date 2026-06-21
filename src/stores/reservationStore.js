@@ -130,6 +130,17 @@ export const useReservationStore = defineStore('reservations', () => {
     r.assignedItemIds   = itemIds
     r.assignedItemNames = itemNames
 
+    /* 記錄到達習慣到會員資料 */
+    if (r.phone && r.date && r.time) {
+      const { useMemberStore } = await import('@/stores/memberStore.js')
+      const mStore = useMemberStore()
+      mStore.recordArrival(r.phone, {
+        reservationDate: r.date,
+        reservationTime: r.time,
+        seatedAt:        r.seatedAt,
+      })
+    }
+
     const { error: err } = await supabase
       .from('reservations')
       .update({

@@ -59,12 +59,13 @@
             <!-- Square table -->
             <template v-else-if="item.type === 'square-table'">
               <rect x="-28" y="-22" width="56" height="44" rx="6"
-                    fill="#d8cdb5" stroke="#bfaf95" stroke-width="0.8"/>
+                    :fill="tableStatusColor(item.status)" stroke="#bfaf95" stroke-width="0.8"/>
             </template>
 
             <!-- Round table -->
             <template v-else-if="item.type === 'round-table'">
-              <circle cx="0" cy="0" r="24" fill="#d8cdb5" stroke="#bfaf95" stroke-width="0.8"/>
+              <circle cx="0" cy="0" r="24"
+                      :fill="tableStatusColor(item.status)" stroke="#bfaf95" stroke-width="0.8"/>
             </template>
           </g>
 
@@ -237,6 +238,7 @@ async function saveLayout(floor, items) {
 
 const props = defineProps({
   arrangingId: { type: Number, default: null },
+  activeFloor:  { type: String, default: '1F' },
 })
 
 const emit = defineEmits(['finish-editing', 'seat-assigned', 'cancel-arrange', 'seat-click'])
@@ -252,8 +254,8 @@ const nameInputRef = ref(null)
 */
 const LEGEND = [
   { label: '空位',   color: 'var(--color-seat-empty)' },
-  { label: '未點餐', color: 'var(--color-seat-ordered)' },
-  { label: '已點餐', color: 'var(--color-seat-paid)' },
+  { label: '未結帳', color: 'var(--color-seat-ordered)' },
+  { label: '已結帳', color: 'var(--color-seat-paid)' },
 ]
 
 const TOOLS = [
@@ -275,6 +277,10 @@ const BASE_HH = { chair: 14, 'square-table': 22, 'round-table': 24 }
 
 /* ── Helpers ── */
 function statusColor(s) { return STATUS_COLORS[s] ?? STATUS_COLORS.empty }
+/* 桌子空位保留原始木紋色，有訂單才套用狀態色 */
+function tableStatusColor(s) {
+  return (!s || s === 'empty') ? '#d8cdb5' : statusColor(s)
+}
 
 
 // Scaled half-dimensions — used for handle positioning
@@ -317,10 +323,9 @@ const editHint = computed(() => {
 
 /* ── Floor items ── */
 let _uid = 30
-const ACTIVE_FLOOR = '1F'   // 之後從 props/store 取得當前樓層
 
 /* 預設座位圖：只在 Supabase 該樓層還沒有任何資料時（第一次使用）當起點 */
-const DEFAULT_FLOOR_ITEMS = [
+const DEFAULT_ITEMS = [
   // Right column: 大桌 1 + 座位
   { id:1,  type:'square-table', x:212, y:75,  rotation:0, scaleX:1.2, scaleY:1.2, name:'1號桌', status:'paid' },
   { id:2,  type:'chair',        x:175, y:32,  rotation:0, scaleX:1, scaleY:1,   name:'A1',   status:'paid' },
@@ -353,19 +358,27 @@ const DEFAULT_FLOOR_ITEMS = [
 const floorItems      = ref([])         // 先空陣列，避免畫面先閃出預設座位圖再跳成儲存版
 const isLayoutLoading = ref(true)       // 讀取 Supabase 座位圖中
 
-/* 頁面載入時讀取儲存的座位圖 */
-onMounted(async () => {
-  const saved = await loadLayout(ACTIVE_FLOOR)
+async function loadCurrentFloor() {
+  isLayoutLoading.value = true
+  floorItems.value = []
+  const saved = await loadLayout(props.activeFloor)
   if (saved && saved.length > 0) {
     floorItems.value = saved
     const maxId = Math.max(...saved.map(i => i.id), _uid)
     _uid = maxId + 1
   } else {
-    /* Supabase 這個樓層還沒存過座位圖（第一次使用）→ 用預設座位圖當起點 */
-    floorItems.value = DEFAULT_FLOOR_ITEMS
+    /* 這個樓層還沒有座位圖 → 空白畫布，不套用預設 */
+    floorItems.value = props.activeFloor === '1F' ? DEFAULT_ITEMS : []
+    _uid = Math.max(...floorItems.value.map(i => i.id), _uid) + 1
   }
   isLayoutLoading.value = false
-})
+}
+
+/* 頁面載入時讀取儲存的座位圖 */
+onMounted(loadCurrentFloor)
+
+/* 切換樓層時重新載入 */
+watch(() => props.activeFloor, loadCurrentFloor)
 
 /* ── Drag state ── */
 const drag = ref(null)
@@ -416,7 +429,7 @@ async function finishEditing() {
   activeTool.value = null
   selectedId.value = null
   drag.value = null
-  await saveLayout(ACTIVE_FLOOR, floorItems.value)
+  await saveLayout(props.activeFloor, floorItems.value)
   emit('finish-editing', [...floorItems.value])
 }
 
@@ -628,7 +641,7 @@ function markItemSeated(itemId) {
   if (item) item.status = 'ordered'
 }
 
-defineExpose({ markItemSeated, reloadLayout: loadLayout })
+defineExpose({ markItemSeated, reloadLayout: loadCurrentFloor })
 </script>
 
 <style scoped>

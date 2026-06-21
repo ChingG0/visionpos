@@ -24,7 +24,7 @@
       <!-- Reservation List -->
       <div class="res-panel__list">
         <ReservationCard
-          v-for="item in store.reservations"
+          v-for="item in store.reservations.filter(r => r.status === 'waiting')"
           :key="item.id"
           :reservation="item"
           @cancel="store.cancelReservation($event)"

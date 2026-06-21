@@ -256,13 +256,14 @@ export function printOrderReceipt(orderData) {
     try {
       request = await buildReceiptRequest(orderData)
     } catch (e) {
-      console.error('[printer] 組版失敗', e)
+      console.warn('[printer] 組版失敗', e)
       resolve({ success: false, error: e })
       return
     }
-    const trader = new StarWebPrintTrader({ url: getPrinterUrl(), papertype: 'normal', timeout: 10000 })
+    /* timeout 縮短到 3 秒，失敗靜默 resolve，不 alert */
+    const trader = new StarWebPrintTrader({ url: getPrinterUrl(), papertype: 'normal', timeout: 3000 })
     trader.onReceive = (resp) => resolve({ success: true,  response: resp })
-    trader.onError   = (resp) => { console.error('[printer] 出單失敗', resp); resolve({ success: false, error: resp }) }
+    trader.onError   = (resp) => { console.warn('[printer] 出單失敗（無出單機模式）'); resolve({ success: false, error: resp }) }
     trader.sendMessage({ request })
   })
 }

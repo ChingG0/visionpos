@@ -48,14 +48,17 @@ export const useTakeoutStore = defineStore('takeoutOrders', () => {
     }
   }
 
-  async function addOrder({ items, tags, note, surcharge, discount, subtotal, total, pickupNumber, customerName, customerPhone }) {
+  async function addOrder({ items, tags, note, surcharge, discount, subtotal, total, pickupNumber, customerName, customerPhone, paymentMethod, paymentAmount, changeAmount }) {
     const { data, error: err } = await supabase
       .from('takeout_orders')
       .insert({
         items, tags, note, surcharge, discount, subtotal, total,
-        pickup_number:  pickupNumber ?? null,
-        customer_name:  customerName  || null,
-        customer_phone: customerPhone || null,
+        pickup_number:   pickupNumber ?? null,
+        customer_name:   customerName  || null,
+        customer_phone:  customerPhone || null,
+        payment_method:  paymentMethod || null,
+        payment_amount:  paymentAmount ?? null,
+        change_amount:   changeAmount  ?? null,
         status: 'pending',
       })
       .select()

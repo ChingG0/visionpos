@@ -3,14 +3,15 @@
     <div class="som-backdrop" @click.self="emit('close')">
       <div class="som-box">
 
+        <!-- ── Header ── -->
         <div class="som-header">
           <div class="som-header-left">
             <span class="som-seat-badge">{{ seat.name }}</span>
             <span class="som-time">{{ elapsedTime }}</span>
           </div>
           <div class="som-header-right">
-            <button v-if="order" class="som-print-icon" :disabled="printing" @click="handlePrint" title="補印收據">
-              <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <button v-if="currentOrder" class="som-icon-btn" :disabled="printing" @click="handlePrint" title="補印">
+              <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M5 7V2h10v5"/><path d="M5 14H2V7h16v7h-3"/><path d="M5 14v4h10v-4"/>
               </svg>
             </button>
@@ -18,21 +19,44 @@
           </div>
         </div>
 
-        <!-- 載入中 -->
-        <div v-if="loading" class="som-loading">載入中...</div>
+        <!-- ── 載入中 ── -->
+        <div v-if="loading" class="som-empty">載入中...</div>
 
-        <!-- 找不到訂單 -->
-        <div v-else-if="!order" class="som-empty">
+        <!-- ── 無訂單 ── -->
+        <div v-else-if="orders.length === 0" class="som-empty">
           <p>找不到此座位的訂單</p>
-          <p class="som-empty-hint">可能是較早前的訂單或從其他裝置建立的</p>
+          <p class="som-empty-hint">可能已從其他裝置刪除</p>
           <div class="som-footer">
-            <button class="som-btn-reset" @click="handleReset">清空座位</button>
-            <button class="som-btn-cancel" @click="emit('close')">關閉</button>
+            <button class="som-btn-red" @click="handleReset">清空座位</button>
+            <button class="som-btn-ghost" @click="emit('close')">關閉</button>
           </div>
         </div>
 
-        <!-- 訂單詳情 -->
+        <!-- ── 訂單詳情 ── -->
         <template v-else>
+
+          <!-- 付款狀態條 -->
+          <div class="som-status-bar" :class="currentIsPaid ? 'som-status-bar--paid' : 'som-status-bar--unpaid'">
+            <span>{{ currentIsPaid ? `✓ 已付款：${currentOrder.paymentMethod}` : '⏳ 未結帳' }}</span>
+            <button v-if="orders.length === 1" class="som-add-order-link" @click="handleAddOrder">＋ 加單</button>
+          </div>
+
+          <!-- 多單標籤列 -->
+          <div v-if="orders.length > 1" class="som-tabs">
+            <button v-for="(o, i) in orders" :key="o.id"
+              class="som-tab" :class="{ 'som-tab--active': activeIdx === i }"
+              @click="activeIdx = i">
+              <span class="som-tab-merge" v-if="mergeMode">
+                <input type="checkbox" :checked="mergeSet.has(o.id)"
+                  @change="toggleMerge(o.id)" @click.stop />
+              </span>
+              第{{ i + 1 }}單
+              <span class="som-tab-price">${{ o.total?.toFixed(0) }}</span>
+            </button>
+            <button class="som-tab som-tab--add" @click="handleAddOrder">＋</button>
+          </div>
+
+          <!-- 品項清單 -->
           <div class="som-body">
             <table class="som-table">
               <thead>
@@ -43,105 +67,262 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(line, i) in order.items" :key="i">
+                <tr v-for="(line, i) in currentOrder.items" :key="i">
                   <td>{{ line.name }}</td>
                   <td class="som-td-num">{{ line.qty }}</td>
                   <td class="som-td-num">${{ (line.price * line.qty).toFixed(0) }}</td>
                 </tr>
               </tbody>
             </table>
-
-            <!-- 標籤 + 備註 -->
-            <div v-if="order.tags?.length || order.note" class="som-extras">
-              <div v-if="order.tags?.length" class="som-tags">
-                <span v-for="tag in order.tags" :key="tag.id"
-                  class="som-tag-pill"
+            <div v-if="currentOrder.tags?.length || currentOrder.note" class="som-extras">
+              <div v-if="currentOrder.tags?.length" class="som-tags">
+                <span v-for="tag in currentOrder.tags" :key="tag.id" class="som-tag-pill"
                   :style="{ background: tagColorOf(tag).bg, color: tagColorOf(tag).text }">
                   {{ tag.label }}
                 </span>
               </div>
-              <p v-if="order.note" class="som-note">📝 {{ order.note }}</p>
+              <p v-if="currentOrder.note" class="som-note">📝 {{ currentOrder.note }}</p>
             </div>
           </div>
 
+          <!-- 金額小計 -->
           <div class="som-summary">
-            <div class="som-row">
-              <span>小計</span>
-              <span>${{ order.subtotal?.toFixed(0) }}</span>
-            </div>
-            <div v-if="surchargeAmt > 0" class="som-row">
-              <span>加價</span>
-              <span>+${{ surchargeAmt.toFixed(0) }}</span>
-            </div>
-            <div v-if="discountAmt > 0" class="som-row som-row--discount">
-              <span>折扣</span>
-              <span>-${{ discountAmt.toFixed(0) }}</span>
-            </div>
-            <div class="som-row som-row--total">
-              <span>總計</span>
-              <span>${{ order.total?.toFixed(0) }}</span>
-            </div>
+            <div class="som-row"><span>小計</span><span>${{ currentOrder.subtotal?.toFixed(0) }}</span></div>
+            <div v-if="currentSurcharge > 0" class="som-row"><span>加價</span><span>+${{ currentSurcharge.toFixed(0) }}</span></div>
+            <div v-if="currentDiscount > 0" class="som-row som-row--disc"><span>折扣</span><span>-${{ currentDiscount.toFixed(0) }}</span></div>
+            <div class="som-row som-row--total"><span>總計</span><span>${{ currentOrder.total?.toFixed(0) }}</span></div>
           </div>
 
+          <!-- 底部操作 -->
           <div class="som-footer">
-            <button class="som-btn-cancel-order" @click="showCancelModal = true">取消訂單</button>
-            <button class="som-btn-complete" :disabled="completing" @click="handleComplete">
-              {{ completing ? '處理中...' : '✓ 完成結帳' }}
+            <!-- 取消目前這張單 -->
+            <button class="som-btn-red" @click="showCancelModal = true">取消訂單</button>
+
+            <!-- 併單模式開關（2張以上才有） -->
+            <button v-if="orders.length > 1 && !mergeMode" class="som-btn-merge" @click="startMerge">
+              ☰ 併單
             </button>
+            <button v-if="mergeMode" class="som-btn-ghost" @click="cancelMerge">取消併單</button>
+
+            <!-- 結帳按鈕：根據付款狀態 & 是否併單模式 -->
+            <template v-if="mergeMode && mergeSet.size > 0">
+              <button class="som-btn-checkout" @click="showMergePayment = true">
+                💳 併單結帳 ${{ mergeTotal.toFixed(0) }}
+              </button>
+            </template>
+            <template v-else>
+              <button v-if="currentIsPaid" class="som-btn-complete" :disabled="completing" @click="completeCurrent">
+                {{ completing ? '處理中...' : '✓ 完成結帳' }}
+              </button>
+              <button v-else class="som-btn-checkout" :disabled="completing" @click="showPaymentModal = true">
+                💳 結帳
+              </button>
+            </template>
           </div>
         </template>
 
       </div>
     </div>
 
-    <!-- 取消訂單確認視窗 -->
-    <div v-if="showCancelModal" class="som-cancel-backdrop" @click.self="showCancelModal = false">
-      <div class="som-cancel-box">
-        <p class="som-cancel-title">確認取消訂單？</p>
-        <p class="som-cancel-seat">座位：{{ seat.name }}</p>
-
-        <div class="som-cancel-field">
-          <label class="som-cancel-label">取消原因 <span class="som-cancel-req">*</span></label>
-          <input v-model="cancelReason" class="som-cancel-input" type="text"
-            placeholder="例：客人臨時離開、點錯餐點..." />
+    <!-- ── 取消訂單確認 ── -->
+    <div v-if="showCancelModal" class="som-overlay" @click.self="showCancelModal = false">
+      <div class="som-dialog">
+        <p class="som-dialog-title">確認取消訂單？</p>
+        <p class="som-dialog-sub">{{ seat.name }}・第{{ activeIdx + 1 }}單</p>
+        <div class="som-field">
+          <label>取消原因 <span class="req">*</span></label>
+          <input v-model="cancelReason" class="som-input" type="text" placeholder="例：客人臨時離開..." />
         </div>
-        <div class="som-cancel-field">
-          <label class="som-cancel-label">操作人員帳號 <span class="som-cancel-req">*</span></label>
-          <input v-model="cancelStaff" class="som-cancel-input" type="text"
-            placeholder="請輸入人員帳號..." />
+        <div class="som-field">
+          <label>操作人員帳號 <span class="req">*</span></label>
+          <input v-model="cancelStaff" class="som-input" type="text" placeholder="帳號..." />
         </div>
-
-        <div class="som-cancel-actions">
-          <button class="som-cancel-back" @click="showCancelModal = false">返回</button>
-          <button class="som-cancel-confirm"
-            :disabled="!cancelReason.trim() || !cancelStaff.trim() || cancelling"
-            @click="handleCancelConfirm">
+        <div class="som-dialog-footer">
+          <button class="som-btn-ghost" @click="showCancelModal = false">返回</button>
+          <button class="som-btn-danger" :disabled="!cancelReason.trim() || !cancelStaff.trim() || cancelling" @click="handleCancelConfirm">
             {{ cancelling ? '處理中...' : '確認取消' }}
           </button>
         </div>
       </div>
     </div>
 
+    <!-- ── 單張結帳 PaymentModal ── -->
+    <PaymentModal
+      v-if="showPaymentModal"
+      :total="currentOrder?.total ?? 0"
+      @close="showPaymentModal = false"
+      @paid="handlePaymentAndComplete"
+    />
+
+    <!-- ── 併單結帳 PaymentModal（不允許稍後付款） ── -->
+    <PaymentModal
+      v-if="showMergePayment"
+      :total="mergeTotal"
+      :allow-defer="false"
+      @close="showMergePayment = false"
+      @paid="handleMergePaymentAndComplete"
+    />
+
   </Teleport>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useDineInStore }   from '@/stores/dineInStore.js'
-import { resetSeatStatus }  from '@/lib/floorOrders.js'
-import { TAG_COLOR_MAP }    from '@/constants/tagColors.js'
+import { useDineInStore }    from '@/stores/dineInStore.js'
+import { resetSeatStatus }   from '@/lib/floorOrders.js'
+import { TAG_COLOR_MAP }     from '@/constants/tagColors.js'
 import { printOrderReceipt } from '@/lib/printer.js'
+import { supabase }          from '@/lib/supabase.js'
+import PaymentModal          from '@/components/order/PaymentModal.vue'
 
-const props = defineProps({
-  seat: { type: Object, required: true },   // { id, name, status, type }
-})
-
-const emit = defineEmits(['close', 'completed'])
+const props = defineProps({ seat: { type: Object, required: true } })
+const emit  = defineEmits(['close', 'completed', 'add-order'])
 
 const dineInStore = useDineInStore()
 const loading     = ref(true)
 const completing  = ref(false)
 const printing    = ref(false)
+
+/* ── 訂單列表（同桌可多張） ── */
+const orders    = ref([])
+const activeIdx = ref(0)
+
+onMounted(() => {
+  orders.value    = [...dineInStore.getOrdersBySeatId(props.seat.id)]
+  activeIdx.value = 0
+  loading.value   = false
+})
+
+const currentOrder  = computed(() => orders.value[activeIdx.value] ?? null)
+const currentIsPaid = computed(() => {
+  const m = currentOrder.value?.paymentMethod
+  return !!m && m !== '稍後付款'
+})
+
+/* ── 金額計算 ── */
+const currentSurcharge = computed(() => currentOrder.value?.surcharge?.amount ?? 0)
+const currentDiscount  = computed(() => {
+  const d    = currentOrder.value?.discount
+  const base = (currentOrder.value?.subtotal ?? 0) + currentSurcharge.value
+  if (!d?.value) return 0
+  return d.type === 'percent' ? Math.round(base * d.value / 100) : Math.min(d.value, base)
+})
+
+/* ── 等候時間 ── */
+const elapsedTime = computed(() => {
+  const t = currentOrder.value?.createdAt ?? orders.value[0]?.createdAt
+  if (!t) return ''
+  const diff    = Math.max(0, Math.floor((Date.now() - new Date(t).getTime()) / 1000))
+  const hours   = Math.floor(diff / 3600)
+  const minutes = Math.floor((diff % 3600) / 60)
+  return hours > 0 ? `${hours}h${String(minutes).padStart(2, '0')}m` : `${minutes} 分鐘`
+})
+
+function tagColorOf(tag) { return TAG_COLOR_MAP[tag.color] ?? TAG_COLOR_MAP.gray }
+
+/* ── 加單（通知 DineInView 切換到新訂單模式） ── */
+function handleAddOrder() {
+  emit('add-order', props.seat)
+}
+
+/* ── 完成單張結帳（已付款） ── */
+async function completeCurrent() {
+  if (!currentOrder.value || completing.value) return
+  completing.value = true
+  const result = await dineInStore.completeOrder(currentOrder.value.id, props.seat.id)
+  if (result === 'last') {
+    await resetSeatStatus(props.seat.id)
+    emit('completed', props.seat.id)
+    emit('close')
+  } else if (result === 'more') {
+    orders.value = [...dineInStore.getOrdersBySeatId(props.seat.id)]
+    activeIdx.value = Math.min(activeIdx.value, orders.value.length - 1)
+  }
+  completing.value = false
+}
+
+/* ── 稍後付款 → 開 PaymentModal → 結帳 ── */
+const showPaymentModal = ref(false)
+
+async function handlePaymentAndComplete({ methodLabel, paymentAmount, changeAmount }) {
+  showPaymentModal.value = false
+  if (!currentOrder.value) return
+  completing.value = true
+  await supabase.from('dine_in_orders').update({
+    payment_method: methodLabel, payment_amount: paymentAmount, change_amount: changeAmount,
+  }).eq('id', currentOrder.value.id)
+  const result = await dineInStore.completeOrder(currentOrder.value.id, props.seat.id)
+  if (result === 'last') { await resetSeatStatus(props.seat.id); emit('completed', props.seat.id); emit('close') }
+  else { orders.value = [...dineInStore.getOrdersBySeatId(props.seat.id)]; activeIdx.value = Math.min(activeIdx.value, orders.value.length - 1) }
+  completing.value = false
+}
+
+/* ── 併單 ── */
+const mergeMode       = ref(false)
+const mergeSet        = ref(new Set())
+const showMergePayment = ref(false)
+
+const mergeTotal = computed(() => {
+  return orders.value
+    .filter(o => mergeSet.value.has(o.id))
+    .reduce((s, o) => s + (o.total ?? 0), 0)
+})
+
+function startMerge() {
+  mergeMode.value = true
+  mergeSet.value  = new Set(orders.value.map(o => o.id))  // 預設全選
+}
+
+function cancelMerge() {
+  mergeMode.value = false
+  mergeSet.value  = new Set()
+}
+
+function toggleMerge(orderId) {
+  const s = new Set(mergeSet.value)
+  s.has(orderId) ? s.delete(orderId) : s.add(orderId)
+  mergeSet.value = s
+}
+
+async function handleMergePaymentAndComplete({ methodLabel, paymentAmount, changeAmount }) {
+  showMergePayment.value = false
+  completing.value = true
+  const ids = [...mergeSet.value]
+
+  // 更新所有選中訂單的付款資訊
+  await Promise.all(ids.map(id =>
+    supabase.from('dine_in_orders').update({
+      payment_method: methodLabel, payment_amount: paymentAmount, change_amount: changeAmount,
+    }).eq('id', id)
+  ))
+
+  const result = await dineInStore.completeOrders(ids, props.seat.id)
+  if (result === 'last') { await resetSeatStatus(props.seat.id); emit('completed', props.seat.id); emit('close') }
+  else {
+    orders.value = [...dineInStore.getOrdersBySeatId(props.seat.id)]
+    activeIdx.value = 0
+    cancelMerge()
+  }
+  completing.value = false
+}
+
+/* ── 補印（靜默） ── */
+async function handlePrint() {
+  if (!currentOrder.value || printing.value) return
+  printing.value = true
+  const o = currentOrder.value
+  const surchargeAmount = o.surcharge?.amount ?? 0
+  const base = (o.subtotal ?? 0) + surchargeAmount
+  const discountAmount = o.discount?.value
+    ? (o.discount.type === 'percent' ? Math.round(base * o.discount.value / 100) : Math.min(o.discount.value, base))
+    : 0
+  await printOrderReceipt({
+    pickupNumber: null, orderType: 'dine-in', tableName: props.seat.name,
+    items: o.items ?? [], tags: o.tags ?? [], note: o.note ?? '',
+    subtotal: o.subtotal ?? 0, surchargeAmount, discountAmount, total: o.total ?? 0,
+  })
+  printing.value = false
+}
 
 /* ── 取消訂單 ── */
 const showCancelModal = ref(false)
@@ -150,88 +331,20 @@ const cancelStaff     = ref('')
 const cancelling      = ref(false)
 
 async function handleCancelConfirm() {
-  if (!order.value || cancelling.value) return
-  if (!cancelReason.value.trim() || !cancelStaff.value.trim()) return
+  if (!currentOrder.value || cancelling.value) return
   cancelling.value = true
-  const ok = await dineInStore.cancelOrder(order.value.id, props.seat.id, {
-    reason: cancelReason.value.trim(),
-    staff:  cancelStaff.value.trim(),
+  const result = await dineInStore.cancelOrder(currentOrder.value.id, props.seat.id, {
+    reason: cancelReason.value.trim(), staff: cancelStaff.value.trim(),
   })
-  if (ok) {
-    await resetSeatStatus(props.seat.id)
-    emit('completed', props.seat.id)
-    emit('close')
-  }
+  if (result === 'last') { await resetSeatStatus(props.seat.id); emit('completed', props.seat.id); emit('close') }
+  else { orders.value = [...dineInStore.getOrdersBySeatId(props.seat.id)]; activeIdx.value = Math.min(activeIdx.value, orders.value.length - 1) }
   cancelling.value = false
   showCancelModal.value = false
+  cancelReason.value = ''
+  cancelStaff.value  = ''
 }
 
-/* 補印 */
-async function handlePrint() {
-  if (!order.value || printing.value) return
-  printing.value = true
-  const o = order.value
-  const surchargeAmount = o.surcharge?.amount ?? 0
-  const base = (o.subtotal ?? 0) + surchargeAmount
-  const discountAmount = o.discount?.value
-    ? (o.discount.type === 'percent' ? Math.round(base * o.discount.value / 100) : Math.min(o.discount.value, base))
-    : 0
-  const result = await printOrderReceipt({
-    pickupNumber: null,
-    orderType:    'dine-in',
-    tableName:    props.seat.name,
-    items:        o.items ?? [],
-    tags:         o.tags  ?? [],
-    note:         o.note  ?? '',
-    subtotal:     o.subtotal ?? 0,
-    surchargeAmount,
-    discountAmount,
-    total:        o.total ?? 0,
-  })
-  if (!result.success) alert('補印失敗，確認出單機是否開機並連上網路。')
-  printing.value = false
-}
-const order       = ref(null)
-
-onMounted(async () => {
-  order.value = dineInStore.getOrderBySeatId(props.seat.id)
-  loading.value = false
-})
-
-/* 等候計時 */
-const elapsedTime = computed(() => {
-  if (!order.value?.createdAt) return ''
-  const diff    = Math.max(0, Math.floor((Date.now() - new Date(order.value.createdAt).getTime()) / 1000))
-  const hours   = Math.floor(diff / 3600)
-  const minutes = Math.floor((diff % 3600) / 60)
-  return hours > 0 ? `${hours}h${String(minutes).padStart(2,'0')}m` : `${minutes} 分鐘`
-})
-
-/* 金額計算 */
-const surchargeAmt = computed(() => order.value?.surcharge?.amount ?? 0)
-const discountAmt  = computed(() => {
-  const d = order.value?.discount
-  if (!d?.value) return 0
-  const base = order.value.subtotal + surchargeAmt.value
-  return d.type === 'percent' ? Math.round(base * d.value / 100) : Math.min(d.value, base)
-})
-
-function tagColorOf(tag) { return TAG_COLOR_MAP[tag.color] ?? TAG_COLOR_MAP.gray }
-
-/* 完成結帳 */
-async function handleComplete() {
-  if (!order.value || completing.value) return
-  completing.value = true
-  const ok = await dineInStore.completeOrder(order.value.id, props.seat.id)
-  if (ok) {
-    await resetSeatStatus(props.seat.id)
-    emit('completed', props.seat.id)
-    emit('close')
-  }
-  completing.value = false
-}
-
-/* 只重置座位狀態（找不到訂單資料時用） */
+/* ── 清空座位（找不到訂單時） ── */
 async function handleReset() {
   await resetSeatStatus(props.seat.id)
   emit('completed', props.seat.id)
@@ -241,185 +354,102 @@ async function handleReset() {
 
 <style scoped>
 .som-backdrop {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,0.45);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 9999;
+  position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+  display: flex; align-items: center; justify-content: center; z-index: 9999;
 }
-
 .som-box {
-  background: #fff; border-radius: 16px;
-  width: 340px; max-height: 85vh;
-  overflow-y: auto;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.22);
+  background: #fff; border-radius: 16px; width: 340px; max-height: 88vh;
+  overflow-y: auto; box-shadow: 0 12px 40px rgba(0,0,0,0.22);
   font-family: 'Noto Sans TC','PingFang TC',sans-serif;
   display: flex; flex-direction: column;
 }
 
-.som-header {
-  display: flex; align-items: center;
-  justify-content: space-between;
-  padding: 14px 16px 12px;
-  border-bottom: 1px solid #ede5d0;
-  flex-shrink: 0;
-}
-
-.som-header-left { display: flex; align-items: center; gap: 10px; }
-.som-header-right { display: flex; align-items: center; gap: 6px; }
-
-.som-print-icon {
-  width: 30px; height: 30px; border-radius: 50%;
+/* Header */
+.som-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px 10px; border-bottom: 1px solid #ede5d0; flex-shrink: 0; }
+.som-header-left  { display: flex; align-items: center; gap: 10px; }
+.som-header-right { display: flex; align-items: center; gap: 5px; }
+.som-seat-badge { font-size: 14px; font-weight: 700; background: #fde8c0; color: #7a4010; padding: 3px 12px; border-radius: 999px; }
+.som-time       { font-size: 12px; color: var(--color-text-muted); }
+.som-icon-btn {
+  width: 28px; height: 28px; border-radius: 50%;
   background: #f0e8d8; color: #7a6850; border: 1px solid #c8b89a;
-  display: flex; align-items: center; justify-content: center;
-  transition: background 0.12s;
+  display: flex; align-items: center; justify-content: center; transition: background 0.12s;
 }
-.som-print-icon:hover:not(:disabled) { background: #e8dcc8; }
-.som-print-icon:disabled { opacity: 0.5; }
-
-.som-seat-badge {
-  font-size: 15px; font-weight: 600;
-  color: #1a0800;
-  background: #fde8c0; padding: 4px 12px;
-  border-radius: 999px;
-}
-
-.som-time { font-size: 12px; color: var(--color-text-muted); }
-
-.som-close {
-  width: 26px; height: 26px; border-radius: 50%;
-  background: #f0e8d8; font-size: 16px; color: #7a6850;
-  display: flex; align-items: center; justify-content: center;
-}
+.som-icon-btn:hover:not(:disabled) { background: #e8dcc8; }
+.som-icon-btn:disabled { opacity: 0.5; }
+.som-close { width: 26px; height: 26px; border-radius: 50%; background: #f0e8d8; font-size: 16px; color: #7a6850; display: flex; align-items: center; justify-content: center; }
 .som-close:hover { background: #e0d0b8; }
 
-.som-loading, .som-empty {
-  padding: 32px 16px; text-align: center;
-  color: var(--color-text-muted); font-size: 13px;
-}
-.som-empty-hint { font-size: 11.5px; margin-top: 6px; }
+/* 狀態條 */
+.som-status-bar { display: flex; align-items: center; justify-content: space-between; padding: 6px 14px; font-size: 12px; font-weight: 500; flex-shrink: 0; }
+.som-status-bar--paid   { background: #e8f3e8; color: #2f7a3d; border-bottom: 1px solid #c8e8c8; }
+.som-status-bar--unpaid { background: #fff8ee; color: #e07020; border-bottom: 1px solid #f0d8a0; }
+.som-add-order-link { font-size: 12px; font-weight: 600; color: #e8a038; background: none; border: none; cursor: pointer; padding: 0; }
+.som-add-order-link:hover { color: #c88020; }
 
-.som-body { padding: 12px 16px; flex: 1; overflow-y: auto; }
-
-.som-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-.som-table th {
-  text-align: left; padding: 6px 8px 6px 0;
-  font-size: 12px; color: var(--color-text-muted);
-  border-bottom: 1px solid #f0e8d8;
+/* 多單標籤 */
+.som-tabs { display: flex; padding: 6px 10px 0; gap: 4px; border-bottom: 1px solid #ede5d0; flex-shrink: 0; overflow-x: auto; }
+.som-tab {
+  display: flex; align-items: center; gap: 5px;
+  padding: 6px 10px; border-radius: 8px 8px 0 0; font-size: 12px; white-space: nowrap;
+  color: var(--color-text-muted); background: #f5f0e8; border: 1px solid #ede5d0; border-bottom: none;
+  transition: all 0.12s;
 }
+.som-tab--active { background: #fff; color: var(--color-text-primary); font-weight: 600; border-color: #c8b89a; }
+.som-tab--add { background: none; border-style: dashed; color: #e8a038; }
+.som-tab--add:hover { background: #fff8ee; }
+.som-tab-price { font-size: 11px; color: var(--color-text-muted); }
+.som-tab--active .som-tab-price { color: #c08020; }
+.som-tab-merge { display: flex; align-items: center; }
+
+/* 品項 */
+.som-empty { padding: 28px 14px; text-align: center; color: var(--color-text-muted); font-size: 13px; }
+.som-empty-hint { font-size: 11.5px; margin-top: 5px; }
+.som-body { padding: 10px 14px; flex: 1; overflow-y: auto; }
+.som-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.som-table th { text-align: left; padding: 5px 6px 5px 0; font-size: 11.5px; color: var(--color-text-muted); border-bottom: 1px solid #f0e8d8; }
 .som-th-num { text-align: right; }
-.som-table td { padding: 8px 8px 8px 0; border-bottom: 1px solid #faf5ec; color: #1a0800; }
+.som-table td { padding: 7px 6px 7px 0; border-bottom: 1px solid #faf5ec; color: #1a0800; }
 .som-td-num { text-align: right; }
+.som-extras { margin-top: 9px; display: flex; flex-direction: column; gap: 5px; }
+.som-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.som-tag-pill { font-size: 11.5px; font-weight: 500; padding: 2px 9px; border-radius: 999px; }
+.som-note { font-size: 12px; color: var(--color-text-secondary); background: #faf5ec; padding: 5px 8px; border-radius: 6px; }
 
-.som-extras { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
-.som-tags { display: flex; flex-wrap: wrap; gap: 5px; }
-.som-tag-pill {
-  font-size: 12px; font-weight: 500;
-  padding: 3px 10px; border-radius: 999px;
-}
-.som-note {
-  font-size: 12.5px; color: var(--color-text-secondary);
-  background: #faf5ec; padding: 6px 9px; border-radius: var(--radius-sm);
-}
+/* 金額 */
+.som-summary { padding: 9px 14px; border-top: 1px solid #ede5d0; display: flex; flex-direction: column; gap: 5px; flex-shrink: 0; }
+.som-row { display: flex; justify-content: space-between; font-size: 13px; color: var(--color-text-secondary); }
+.som-row--disc  { color: #c0392b; }
+.som-row--total { font-size: 15px; font-weight: 700; color: #1a0800; padding-top: 5px; border-top: 1px dashed #e0d5c0; }
 
-.som-summary {
-  padding: 10px 16px;
-  border-top: 1px solid #ede5d0;
-  display: flex; flex-direction: column; gap: 6px;
-  flex-shrink: 0;
-}
-.som-row {
-  display: flex; justify-content: space-between;
-  font-size: 13px; color: var(--color-text-secondary);
-}
-.som-row--discount { color: #c0392b; }
-.som-row--total {
-  font-size: 15px; font-weight: 600;
-  color: #1a0800;
-  padding-top: 6px;
-  border-top: 1px dashed #e0d5c0;
-}
+/* 底部按鈕 */
+.som-footer { padding: 10px 14px 13px; border-top: 1px solid #ede5d0; display: flex; gap: 6px; flex-shrink: 0; }
 
-.som-footer {
-  padding: 12px 16px 14px;
-  border-top: 1px solid #ede5d0;
-  display: flex; gap: 8px;
-  flex-shrink: 0;
-}
-
-.som-btn-cancel-order {
-  flex: 1; padding: 10px;
-  border-radius: 10px; font-size: 13px;
-  color: #c0392b; background: #fff0ee; border: 1px solid #f0c0b8;
-  transition: background 0.12s;
-}
-.som-btn-cancel-order:hover { background: #fde0dc; }
-
-/* 取消視窗 */
-.som-cancel-backdrop {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,0.5);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 10000;
-}
-
-.som-cancel-box {
-  background: #fff; border-radius: 16px; width: 320px;
-  padding: 20px; box-shadow: 0 12px 40px rgba(0,0,0,0.25);
-  font-family: 'Noto Sans TC','PingFang TC',sans-serif;
-  display: flex; flex-direction: column; gap: 14px;
-}
-
-.som-cancel-title {
-  font-size: 16px; font-weight: 700; color: #c0392b;
-}
-
-.som-cancel-seat { font-size: 13px; color: var(--color-text-secondary); margin-top: -8px; }
-
-.som-cancel-field { display: flex; flex-direction: column; gap: 5px; }
-
-.som-cancel-label {
-  font-size: 12.5px; font-weight: 500; color: #5a4030;
-}
-
-.som-cancel-req { color: #c0392b; }
-
-.som-cancel-input {
-  padding: 8px 10px;
-  border: 1.5px solid #c8b89a; border-radius: 8px;
-  font-size: 13.5px; color: #1a0800; background: #faf5ec;
-  outline: none; font-family: inherit; transition: border-color 0.15s;
-}
-.som-cancel-input:focus { border-color: #c0392b; }
-
-.som-cancel-actions { display: flex; gap: 8px; margin-top: 4px; }
-
-.som-cancel-back {
-  flex: 1; padding: 10px; border-radius: 10px;
-  font-size: 13px; color: #7a6850; background: #f0e8d8; border: 1px solid #c8b89a;
-}
-.som-cancel-back:hover { background: #e8dcc8; }
-
-.som-cancel-confirm {
-  flex: 2; padding: 10px; border-radius: 10px;
-  font-size: 14px; font-weight: 600; color: #fff; background: #c0392b; border: none;
-  transition: background 0.12s;
-}
-.som-cancel-confirm:hover:not(:disabled) { background: #a93226; }
-.som-cancel-confirm:disabled { opacity: 0.5; }
-
-.som-btn-complete {
-  flex: 2; padding: 10px;
-  border-radius: 10px; font-size: 14px; font-weight: 600;
-  color: #fff; background: #2f7a3d; border: none;
-  transition: background 0.15s;
-}
+.som-btn-red    { flex: 1; padding: 9px 6px; border-radius: 10px; font-size: 12.5px; color: #c0392b; background: #fff0ee; border: 1px solid #f0c0b8; }
+.som-btn-red:hover { background: #fde0dc; }
+.som-btn-ghost  { flex: 1; padding: 9px 6px; border-radius: 10px; font-size: 12.5px; color: #7a6850; background: #f0e8d8; border: 1px solid #c8b89a; }
+.som-btn-ghost:hover { background: #e8dcc8; }
+.som-btn-merge  { flex: 1; padding: 9px 6px; border-radius: 10px; font-size: 12.5px; color: #5a6830; background: #f0f3e8; border: 1px solid #c0c8a0; }
+.som-btn-merge:hover { background: #e4eccc; }
+.som-btn-complete { flex: 2; padding: 9px 6px; border-radius: 10px; font-size: 13.5px; font-weight: 600; color: #fff; background: #2f7a3d; border: none; }
 .som-btn-complete:hover:not(:disabled) { background: #236030; }
-.som-btn-complete:disabled { opacity: 0.6; }
+.som-btn-complete:disabled { opacity: 0.55; }
+.som-btn-checkout { flex: 2; padding: 9px 6px; border-radius: 10px; font-size: 13.5px; font-weight: 600; color: #fff; background: #e07020; border: none; }
+.som-btn-checkout:hover:not(:disabled) { background: #c06010; }
+.som-btn-checkout:disabled { opacity: 0.55; }
 
-.som-btn-reset {
-  flex: 1; padding: 10px;
-  border-radius: 10px; font-size: 13px;
-  color: #c0392b; background: #fff0ee; border: 1px solid #f0c0b8;
-}
-.som-btn-reset:hover { background: #fde0dc; }
+/* 對話框 */
+.som-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000; }
+.som-dialog { background: #fff; border-radius: 16px; width: 300px; padding: 18px; box-shadow: 0 12px 40px rgba(0,0,0,0.25); display: flex; flex-direction: column; gap: 12px; font-family: 'Noto Sans TC','PingFang TC',sans-serif; }
+.som-dialog-title { font-size: 15px; font-weight: 700; color: #c0392b; }
+.som-dialog-sub   { font-size: 12px; color: var(--color-text-secondary); margin-top: -6px; }
+.som-field        { display: flex; flex-direction: column; gap: 4px; }
+.som-field label  { font-size: 12px; font-weight: 500; color: #5a4030; }
+.req { color: #c0392b; }
+.som-input { padding: 7px 9px; border: 1.5px solid #c8b89a; border-radius: 8px; font-size: 13px; background: #faf5ec; outline: none; font-family: inherit; }
+.som-input:focus { border-color: #c0392b; }
+.som-dialog-footer { display: flex; gap: 7px; }
+.som-btn-danger { flex: 2; padding: 9px; border-radius: 9px; font-size: 13.5px; font-weight: 600; color: #fff; background: #c0392b; border: none; }
+.som-btn-danger:hover:not(:disabled) { background: #a93226; }
+.som-btn-danger:disabled { opacity: 0.5; }
 </style>

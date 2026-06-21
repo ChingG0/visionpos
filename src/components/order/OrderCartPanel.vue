@@ -119,7 +119,7 @@
         :disabled="cartItems.length === 0"
         @click="emit('charge')"
       >
-        {{ orderType === 'dine-in' && !tableName ? '送出訂單（請先選桌號）' : `送出訂單　$${total.toFixed(2)}` }}
+        {{ orderType === 'dine-in' && !tableName ? '結帳（請先選桌號）' : `結帳　$${total.toFixed(0)}` }}
       </button>
     </div>
 

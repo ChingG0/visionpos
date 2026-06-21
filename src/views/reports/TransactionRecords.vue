@@ -45,21 +45,26 @@
             <th class="tr__th tr__th--num">小計</th>
             <th class="tr__th tr__th--num">折扣</th>
             <th class="tr__th tr__th--num">總計</th>
+            <th class="tr__th">付款方式</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="reportsStore.loading">
-            <td colspan="8" class="tr__empty">載入中...</td>
+            <td colspan="9" class="tr__empty">載入中...</td>
           </tr>
           <tr v-else-if="filtered.length === 0">
-            <td colspan="8" class="tr__empty">此期間無交易紀錄</td>
+            <td colspan="9" class="tr__empty">此期間無交易紀錄</td>
           </tr>
           <template v-else>
             <tr v-for="order in filtered" :key="order.id" class="tr__row">
               <td class="tr__td tr__td--time">{{ fmtTime(order.completed_at) }}</td>
               <td class="tr__td">
                 <span class="tr__type-badge"
-                  :class="order.orderType === 'takeout' ? 'tr__type-badge--takeout' : 'tr__type-badge--delivery'">
+                  :class="{
+                    'tr__type-badge--takeout':  order.orderType === 'takeout',
+                    'tr__type-badge--dinein':   order.orderType === 'dine-in',
+                    'tr__type-badge--delivery': order.orderType === 'delivery',
+                  }">
                   {{ order.typeLabel }}
                 </span>
               </td>
@@ -73,6 +78,12 @@
                 {{ discountAmount(order) > 0 ? `-$${fmtNum(discountAmount(order))}` : '—' }}
               </td>
               <td class="tr__td tr__td--num tr__td--total">${{ fmtNum(order.total) }}</td>
+              <td class="tr__td">
+                <span v-if="order.payment_method" class="tr__pay-badge">
+                  {{ order.payment_method }}
+                </span>
+                <span v-else class="tr__td--muted">—</span>
+              </td>
             </tr>
           </template>
         </tbody>
@@ -348,7 +359,14 @@ function discountAmount(order) {
 }
 
 .tr__type-badge--takeout  { background: #fde8c0; color: #8a6020; }
+.tr__type-badge--dinein   { background: #e8f3e8; color: #3a6a3a; }
 .tr__type-badge--delivery { background: #d0f0e0; color: #1a6035; }
+
+.tr__pay-badge {
+  font-size: 11px; padding: 2px 8px; border-radius: 999px;
+  background: #eef4ff; color: #1a5080; font-weight: 500;
+}
+.tr__td--muted { color: var(--color-text-muted); }
 
 .tr__note {
   font-size: 11.5px;
