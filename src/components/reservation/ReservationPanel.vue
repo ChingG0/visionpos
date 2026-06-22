@@ -54,7 +54,7 @@ defineProps({
   arrangingId: { type: Number, default: null },
 })
 
-const emit = defineEmits(['request-arrange', 'cancel-arrange'])
+const emit = defineEmits(['request-arrange', 'cancel-arrange', 'add'])
 
 const store   = useReservationStore()
 const showForm = ref(false)

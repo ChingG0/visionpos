@@ -117,6 +117,13 @@ function handleAddOrder(seat) {
   router.push({ name: 'NewOrder', query: { seatId: seat.id, seatName: seat.name } })
 }
 function handleAddReservation()     { console.log('新增訂位') }
+
+/* ── 編輯桌位完成後，重新讀取 layout ── */
+async function handleFinishEditing() {
+  if (floorMapRef.value?.reloadLayout) {
+    await floorMapRef.value.reloadLayout()
+  }
+}
 </script>
 
 <style scoped>
