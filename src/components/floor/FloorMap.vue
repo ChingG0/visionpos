@@ -498,10 +498,12 @@ function onItemDown(item, e) {
     return
   }
 
-  // 普通瀏覽模式（非編輯、非選桌）：點擊已點餐 (paid) 的座位 → 通知父層顯示訂單資訊
+  // 普通瀏覽模式（非編輯、非選桌）：通知父層處理
   if (!isEditing.value) {
-    if (item.status === 'paid' || item.status === 'ordered') {
-      emit('seat-click', { id: item.id, name: item.name, status: item.status, type: item.type })
+    // 有名稱的座位才處理（排除純裝飾物件）
+    if (item.name) {
+      const st = item.status ?? 'empty'
+      emit('seat-click', { id: item.id, name: item.name, status: st, type: item.type, primarySeatId: item.primarySeatId })
     }
     return
   }

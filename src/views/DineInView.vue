@@ -35,6 +35,7 @@
       :seat="clickedSeat"
       @close="clickedSeat = null"
       @completed="handleOrderCompleted"
+      @payment-done="handlePaymentDone"
       @add-order="handleAddOrder"
     />
 
@@ -78,9 +79,16 @@ async function handleSeatAssigned({ reservationId, itemIds, itemNames }) {
 
 /* ── 點擊座位：若是「非主座位」，轉向主座位的訂單 ── */
 async function handleSeatClick(seat) {
+  /* 空位：直接跳新訂單並帶入座位號 */
+  if (!seat.status || seat.status === 'empty') {
+    if (seat.name) {
+      router.push({ name: 'NewOrder', query: { seatId: seat.id, seatName: seat.name } })
+    }
+    return
+  }
+
   /* seat 物件來自 FloorMap，可能帶有 primarySeatId（非主座位時） */
   if (seat.primarySeatId) {
-    /* 找到真正的主座位資料 */
     const allItems = await fetchTables()
     const primary  = allItems.find(i => i.id === seat.primarySeatId)
     if (primary) { clickedSeat.value = primary; return }
@@ -88,11 +96,16 @@ async function handleSeatClick(seat) {
   clickedSeat.value = seat
 }
 
-/* ── 完成結帳後，通知 FloorMap 重新讀取座位狀態 ── */
+/* ── 付款後：刷新 FloorMap 顏色（橘→綠），但不關閉 modal ── */
+async function handlePaymentDone() {
+  if (floorMapRef.value?.reloadLayout) {
+    await floorMapRef.value.reloadLayout()
+  }
+}
+
+/* ── 完成訂單後：清桌 + 關閉 modal ── */
 async function handleOrderCompleted() {
   clickedSeat.value = null
-  /* FloorMap 下次進入頁面或重新整理時會看到更新後的狀態（Supabase 已寫入）
-     如果要即時反映，可以呼叫 floorMapRef 的 loadLayout，但目前先以重整為主 */
   if (floorMapRef.value?.reloadLayout) {
     await floorMapRef.value.reloadLayout()
   }

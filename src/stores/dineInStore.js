@@ -112,5 +112,16 @@ export const useDineInStore = defineStore('dineInOrders', () => {
     return 'more'
   }
 
-  return { activeOrders, loading, init, addOrder, getOrderBySeatId, getOrdersBySeatId, completeOrder, completeOrders, cancelOrder }
+  /* 付款後更新 store 快取（不完成訂單，僅標記 paymentMethod）*/
+  function markOrdersPaid(seatId, orderIds, methodLabel, paymentAmount, changeAmount) {
+    const idSet = new Set(orderIds.map(String))
+    if (!activeOrders.value[seatId]) return
+    activeOrders.value[seatId] = activeOrders.value[seatId].map(o =>
+      idSet.has(String(o.id))
+        ? { ...o, paymentMethod: methodLabel, paymentAmount, changeAmount }
+        : o
+    )
+  }
+
+  return { activeOrders, loading, init, addOrder, getOrderBySeatId, getOrdersBySeatId, completeOrder, completeOrders, cancelOrder, markOrdersPaid }
 })

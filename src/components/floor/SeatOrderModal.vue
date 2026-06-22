@@ -95,29 +95,38 @@
 
           <!-- 底部操作 -->
           <div class="som-footer">
-            <!-- 取消目前這張單 -->
-            <button class="som-btn-red" @click="showCancelModal = true">取消訂單</button>
 
-            <!-- 併單模式開關（2張以上才有） -->
-            <button v-if="orders.length > 1 && !mergeMode" class="som-btn-merge" @click="startMerge">
-              ☰ 併單
+            <!-- ✅ 已付款：取消訂單 → 完成訂單（清桌） -->
+            <button v-if="currentIsPaid"
+              class="som-btn-complete" style="flex:1"
+              :disabled="completing" @click="completeCurrent">
+              {{ completing ? '處理中...' : '✓ 完成訂單' }}
             </button>
-            <button v-if="mergeMode" class="som-btn-ghost" @click="cancelMerge">取消併單</button>
 
-            <!-- 結帳按鈕：根據付款狀態 & 是否併單模式 -->
-            <template v-if="mergeMode && mergeSet.size > 0">
-              <button class="som-btn-checkout" @click="showMergePayment = true">
-                💳 併單結帳 ${{ mergeTotal.toFixed(0) }}
-              </button>
-            </template>
+            <!-- 未付款：正常操作列 -->
             <template v-else>
-              <button v-if="currentIsPaid" class="som-btn-complete" :disabled="completing" @click="completeCurrent">
-                {{ completing ? '處理中...' : '✓ 完成結帳' }}
+              <!-- 取消目前這張單 -->
+              <button class="som-btn-red" @click="showCancelModal = true">取消訂單</button>
+
+              <!-- 併單模式開關（2張以上才有） -->
+              <button v-if="orders.length > 1 && !mergeMode" class="som-btn-merge" @click="startMerge">
+                ☰ 併單
               </button>
-              <button v-else class="som-btn-checkout" :disabled="completing" @click="showPaymentModal = true">
-                💳 結帳
-              </button>
+              <button v-if="mergeMode" class="som-btn-ghost" @click="cancelMerge">取消併單</button>
+
+              <!-- 結帳按鈕 -->
+              <template v-if="mergeMode && mergeSet.size > 0">
+                <button class="som-btn-checkout" @click="showMergePayment = true">
+                  💳 併單結帳 ${{ mergeTotal.toFixed(0) }}
+                </button>
+              </template>
+              <template v-else>
+                <button class="som-btn-checkout" :disabled="completing" @click="showPaymentModal = true">
+                  💳 結帳
+                </button>
+              </template>
             </template>
+
           </div>
         </template>
 
@@ -169,14 +178,14 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useDineInStore }    from '@/stores/dineInStore.js'
-import { resetSeatStatus }   from '@/lib/floorOrders.js'
+import { resetSeatStatus, markTablePaid } from '@/lib/floorOrders.js'
 import { TAG_COLOR_MAP }     from '@/constants/tagColors.js'
 import { printOrderReceipt } from '@/lib/printer.js'
 import { supabase }          from '@/lib/supabase.js'
 import PaymentModal          from '@/components/order/PaymentModal.vue'
 
 const props = defineProps({ seat: { type: Object, required: true } })
-const emit  = defineEmits(['close', 'completed', 'add-order'])
+const emit  = defineEmits(['close', 'completed', 'add-order', 'payment-done'])
 
 const dineInStore = useDineInStore()
 const loading     = ref(true)
@@ -195,7 +204,8 @@ onMounted(() => {
 
 const currentOrder  = computed(() => orders.value[activeIdx.value] ?? null)
 const currentIsPaid = computed(() => {
-  const m = currentOrder.value?.paymentMethod
+  // 同時支援 camelCase（store 映射後）與 snake_case（直接從 DB 來的欄位）
+  const m = currentOrder.value?.paymentMethod ?? currentOrder.value?.payment_method
   return !!m && m !== '稍後付款'
 })
 
@@ -248,12 +258,24 @@ async function handlePaymentAndComplete({ methodLabel, paymentAmount, changeAmou
   showPaymentModal.value = false
   if (!currentOrder.value) return
   completing.value = true
+
+  // ① 只寫入付款資訊，不結束訂單
   await supabase.from('dine_in_orders').update({
     payment_method: methodLabel, payment_amount: paymentAmount, change_amount: changeAmount,
   }).eq('id', currentOrder.value.id)
-  const result = await dineInStore.completeOrder(currentOrder.value.id, props.seat.id)
-  if (result === 'last') { await resetSeatStatus(props.seat.id); emit('completed', props.seat.id); emit('close') }
-  else { orders.value = [...dineInStore.getOrdersBySeatId(props.seat.id)]; activeIdx.value = Math.min(activeIdx.value, orders.value.length - 1) }
+
+  // ② 同步更新 dineInStore 快取（關掉重開 modal 也能讀到正確狀態）
+  dineInStore.markOrdersPaid(props.seat.id, [currentOrder.value.id], methodLabel, paymentAmount, changeAmount)
+
+  // ③ 更新 local 訂單，讓畫面立即反應
+  orders.value = [...dineInStore.getOrdersBySeatId(props.seat.id)]
+
+  // ④ 座位圖從橘色 → 綠色（已付款）
+  await markTablePaid(props.seat.id)
+
+  // ⑤ 通知 DineInView 刷新 FloorMap
+  emit('payment-done', props.seat.id)
+
   completing.value = false
 }
 
@@ -289,20 +311,25 @@ async function handleMergePaymentAndComplete({ methodLabel, paymentAmount, chang
   completing.value = true
   const ids = [...mergeSet.value]
 
-  // 更新所有選中訂單的付款資訊
+  // ① 只寫入付款資訊，不完成訂單
   await Promise.all(ids.map(id =>
     supabase.from('dine_in_orders').update({
       payment_method: methodLabel, payment_amount: paymentAmount, change_amount: changeAmount,
     }).eq('id', id)
   ))
 
-  const result = await dineInStore.completeOrders(ids, props.seat.id)
-  if (result === 'last') { await resetSeatStatus(props.seat.id); emit('completed', props.seat.id); emit('close') }
-  else {
-    orders.value = [...dineInStore.getOrdersBySeatId(props.seat.id)]
-    activeIdx.value = 0
-    cancelMerge()
-  }
+  // ② 同步更新 dineInStore 快取（關掉重開 modal 也能讀到正確狀態）
+  dineInStore.markOrdersPaid(props.seat.id, ids, methodLabel, paymentAmount, changeAmount)
+
+  // ③ 更新 local 訂單，讓畫面立即反應
+  orders.value = [...dineInStore.getOrdersBySeatId(props.seat.id)]
+  activeIdx.value = 0
+  cancelMerge()
+
+  // ④ 座位圖橘色 → 綠色
+  await markTablePaid(props.seat.id)
+  emit('payment-done', props.seat.id)
+
   completing.value = false
 }
 
