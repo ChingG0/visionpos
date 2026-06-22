@@ -110,7 +110,7 @@ function focusPassword() { passwordRef.value?.focus() }
 async function handleLogin() {
   if (!canLogin.value || authStore.loading) return
   const ok = await authStore.login(storeCode.value, username.value, password.value)
-  if (ok) router.replace({ name: 'NewOrder' })
+  if (ok) router.replace({ name: 'NewOrder', params: { storeCode: authStore.store.code } })
 }
 </script>
 

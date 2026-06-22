@@ -56,6 +56,8 @@ import { useTagStore }         from '@/stores/tagStore.js'
 import { useTakeoutStore }     from '@/stores/takeoutStore.js'
 import { useAuthStore }        from '@/stores/authStore.js'
 import { getPrinterLogo }      from '@/lib/printer.js'
+import { useHeartbeat }        from '@/composables/useHeartbeat.js'
+
 
 const menuStore        = useMenuStore()
 const reservationStore = useReservationStore()
@@ -63,6 +65,7 @@ const memberStore      = useMemberStore()
 const tagStore         = useTagStore()
 const takeoutStore     = useTakeoutStore()
 const authStore        = useAuthStore()
+const { startHeartbeat } = useHeartbeat()
 
 const logoSrc   = ref('')
 const isLoading = computed(() =>
@@ -70,6 +73,7 @@ const isLoading = computed(() =>
 )
 
 onMounted(() => {
+startHeartbeat()
   authStore.restore()
   logoSrc.value = getPrinterLogo()
 

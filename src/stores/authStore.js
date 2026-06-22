@@ -6,22 +6,21 @@ const LS_KEY = 'visionpos_auth'
 
 /* SHA-256 雜湊（Web Crypto API） */
 async function sha256(text) {
-  const buf  = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
 export const useAuthStore = defineStore('auth', () => {
-  /* ── 狀態 ── */
   const store   = ref(null)   // { id, code, name }
-  const user    = ref(null)   // { id, username, name, role }
+  const user    = ref(null)   // { id, username, name, role, is_superadmin }
   const loading = ref(false)
   const error   = ref('')
 
-  const isLoggedIn = computed(() => !!store.value && !!user.value)
-  const isOwner    = computed(() => user.value?.role === 'owner')
-  const isManager  = computed(() => ['owner', 'manager'].includes(user.value?.role))
+  const isLoggedIn    = computed(() => !!store.value && !!user.value)
+  const isOwner       = computed(() => user.value?.role === 'owner')
+  const isManager     = computed(() => ['owner', 'manager'].includes(user.value?.role))
+  const isSuperAdmin  = computed(() => user.value?.is_superadmin === true)
 
-  /* ── 從 localStorage 還原 ── */
   function restore() {
     try {
       const raw = localStorage.getItem(LS_KEY)
@@ -40,33 +39,60 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  /* ── 登入 ── */
   async function login(storeCode, username, password) {
     loading.value = true
     error.value   = ''
     try {
       /* 1. 查店家 */
       const { data: storeData, error: sErr } = await supabase
-        .from('stores').select('id, code, name').eq('code', storeCode.trim()).single()
+        .from('stores')
+        .select('id, code, name')
+        .eq('code', storeCode.trim())
+        .single()
       if (sErr || !storeData) { error.value = '店家代碼不正確'; return false }
 
       /* 2. 雜湊密碼 */
       const hash = await sha256(password)
 
-      /* 3. 查員工 */
+      /* 3. 先查 superadmin（不限 store_id，可登入所有店家）*/
+      const { data: superStaff } = await supabase
+        .from('staff')
+        .select('id, username, name, role, is_active, is_superadmin')
+        .eq('username', username.trim())
+        .eq('password_hash', hash)
+        .eq('is_superadmin', true)
+        .maybeSingle()
+
+      if (superStaff) {
+        if (!superStaff.is_active) { error.value = '此帳號已停用'; return false }
+        store.value = { id: storeData.id, code: storeData.code, name: storeData.name }
+        user.value  = {
+          id: superStaff.id, username: superStaff.username,
+          name: superStaff.name, role: superStaff.role,
+          is_superadmin: true,
+        }
+        persist()
+        return true
+      }
+
+      /* 4. 一般員工：限同一家店 */
       const { data: staffData, error: uErr } = await supabase
         .from('staff')
-        .select('id, username, name, role, is_active')
+        .select('id, username, name, role, is_active, is_superadmin')
         .eq('store_id', storeData.id)
         .eq('username', username.trim())
         .eq('password_hash', hash)
         .single()
 
-      if (uErr || !staffData)  { error.value = '帳號或密碼錯誤'; return false }
-      if (!staffData.is_active) { error.value = '此帳號已停用'; return false }
+      if (uErr || !staffData)   { error.value = '帳號或密碼錯誤'; return false }
+      if (!staffData.is_active) { error.value = '此帳號已停用';   return false }
 
       store.value = { id: storeData.id, code: storeData.code, name: storeData.name }
-      user.value  = { id: staffData.id, username: staffData.username, name: staffData.name, role: staffData.role }
+      user.value  = {
+        id: staffData.id, username: staffData.username,
+        name: staffData.name, role: staffData.role,
+        is_superadmin: false,
+      }
       persist()
       return true
     } catch (e) {
@@ -78,19 +104,17 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  /* ── 登出 ── */
   function logout() {
     store.value = null
     user.value  = null
     persist()
   }
 
-  /* ── 員工 CRUD（需 store.value 已設） ── */
   async function fetchStaff() {
     if (!store.value) return []
     const { data, error: err } = await supabase
       .from('staff')
-      .select('id, username, name, role, is_active, created_at')
+      .select('id, username, name, role, is_active, is_superadmin, created_at')
       .eq('store_id', store.value.id)
       .order('created_at')
     if (err) { console.error('[authStore] fetchStaff', err); return [] }
@@ -101,12 +125,13 @@ export const useAuthStore = defineStore('auth', () => {
     if (!store.value) return false
     const hash = await sha256(password)
     const { error: err } = await supabase.from('staff').insert({
-      store_id: store.value.id,
-      username: username.trim(),
+      store_id:      store.value.id,
+      username:      username.trim(),
       password_hash: hash,
-      name: name.trim(),
+      name:          name.trim(),
       role,
-      is_active: true,
+      is_active:     true,
+      is_superadmin: false,
     })
     if (err) { console.error('[authStore] addStaff', err); return err.message }
     return true
@@ -132,7 +157,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   return {
     store, user, loading, error,
-    isLoggedIn, isOwner, isManager,
+    isLoggedIn, isOwner, isManager, isSuperAdmin,
     restore, login, logout,
     fetchStaff, addStaff, updateStaff, deleteStaff,
   }
