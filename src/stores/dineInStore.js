@@ -1,38 +1,32 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { supabase } from '@/lib/supabase.js'
+import { useAuthStore } from '@/stores/authStore.js'
 
 export const useDineInStore = defineStore('dineInOrders', () => {
-
-  /* key = seat_id, value = order[]（支援同桌多張單）*/
   const activeOrders = ref({})
   const loading      = ref(false)
 
+  function getStoreId() { return useAuthStore().store?.id ?? null }
+
   function fromDb(row) {
     return {
-      id:            row.id,
-      seatId:        row.seat_id,
-      seatName:      row.seat_name,
-      items:         row.items      ?? [],
-      tags:          row.tags       ?? [],
-      note:          row.note,
-      surcharge:     row.surcharge,
-      discount:      row.discount,
-      subtotal:      row.subtotal,
-      total:         row.total,
-      status:        row.status,
-      paymentMethod: row.payment_method,
-      paymentAmount: row.payment_amount,
-      changeAmount:  row.change_amount,
-      createdAt:     row.created_at,
+      id: row.id, seatId: row.seat_id, seatName: row.seat_name,
+      items: row.items ?? [], tags: row.tags ?? [],
+      note: row.note, surcharge: row.surcharge, discount: row.discount,
+      subtotal: row.subtotal, total: row.total, status: row.status,
+      paymentMethod: row.payment_method, paymentAmount: row.payment_amount,
+      changeAmount: row.change_amount, createdAt: row.created_at,
     }
   }
 
-  /* 啟動時載入所有 active 訂單，支援同桌多張 */
   async function init() {
+    const storeId = getStoreId()
+    if (!storeId) return
     const { data, error } = await supabase
       .from('dine_in_orders')
       .select('*')
+      .eq('store_id', storeId)
       .eq('status', 'active')
       .order('created_at')
     if (error) { console.error('[dineInStore] init 失敗', error); return }
@@ -45,11 +39,14 @@ export const useDineInStore = defineStore('dineInOrders', () => {
     activeOrders.value = map
   }
 
-  /* 新增訂單（同桌可以有多張） */
+  function reset() { activeOrders.value = {} }
+
   async function addOrder({ seatId, seatName, items, tags, note, surcharge, discount, subtotal, total, paymentMethod, paymentAmount, changeAmount }) {
+    const storeId = getStoreId()
     const { data, error } = await supabase
       .from('dine_in_orders')
       .insert({
+        store_id: storeId,
         seat_id: seatId, seat_name: seatName,
         items, tags, note, surcharge, discount, subtotal, total,
         payment_method: paymentMethod || null,
@@ -65,27 +62,21 @@ export const useDineInStore = defineStore('dineInOrders', () => {
     return order
   }
 
-  /* 取得同桌所有 active 訂單 */
   function getOrdersBySeatId(seatId) { return activeOrders.value[seatId] ?? [] }
-
-  /* 相容舊介面，取第一筆 */
   function getOrderBySeatId(seatId)  { return activeOrders.value[seatId]?.[0] ?? null }
 
-  /* 完成單張訂單 → 回傳 'last'(座位可清空) 或 'more'(仍有其他單) */
   async function completeOrder(orderId, seatId) {
     const { error } = await supabase
       .from('dine_in_orders')
       .update({ status: 'done', completed_at: new Date().toISOString() })
       .eq('id', orderId)
     if (error) { console.error('[dineInStore] 完成失敗', error); return false }
-
     const arr = (activeOrders.value[seatId] ?? []).filter(o => o.id !== orderId)
     if (arr.length === 0) { delete activeOrders.value[seatId]; return 'last' }
     activeOrders.value[seatId] = arr
     return 'more'
   }
 
-  /* 合併結帳：一次完成多張訂單 */
   async function completeOrders(orderIds, seatId) {
     await Promise.all(orderIds.map(id =>
       supabase.from('dine_in_orders')
@@ -98,21 +89,18 @@ export const useDineInStore = defineStore('dineInOrders', () => {
     return 'more'
   }
 
-  /* 取消訂單 */
   async function cancelOrder(orderId, seatId, { reason, staff }) {
     const { error } = await supabase
       .from('dine_in_orders')
       .update({ status: 'cancelled', completed_at: new Date().toISOString(), note: `[取消] 原因：${reason}　操作：${staff}` })
       .eq('id', orderId)
     if (error) { console.error('[dineInStore] 取消失敗', error); return false }
-
     const arr = (activeOrders.value[seatId] ?? []).filter(o => o.id !== orderId)
     if (arr.length === 0) { delete activeOrders.value[seatId]; return 'last' }
     activeOrders.value[seatId] = arr
     return 'more'
   }
 
-  /* 付款後更新 store 快取（不完成訂單，僅標記 paymentMethod）*/
   function markOrdersPaid(seatId, orderIds, methodLabel, paymentAmount, changeAmount) {
     const idSet = new Set(orderIds.map(String))
     if (!activeOrders.value[seatId]) return
@@ -123,5 +111,5 @@ export const useDineInStore = defineStore('dineInOrders', () => {
     )
   }
 
-  return { activeOrders, loading, init, addOrder, getOrderBySeatId, getOrdersBySeatId, completeOrder, completeOrders, cancelOrder, markOrdersPaid }
+  return { activeOrders, loading, init, reset, addOrder, getOrderBySeatId, getOrdersBySeatId, completeOrder, completeOrders, cancelOrder, markOrdersPaid }
 })

@@ -1,58 +1,54 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { supabase } from '@/lib/supabase.js'
+import { useAuthStore } from '@/stores/authStore.js'
 
-/* 外送訂單佇列：由 Supabase Edge Function 接收 Uber Eats webhook 後寫入，
-   這裡只負責讀取與標記完成，不直接跟 Uber API 溝通 */
 export const useDeliveryStore = defineStore('deliveryOrders', () => {
-
   const orders  = ref([])
   const loading = ref(false)
   const error   = ref(null)
   let   loaded  = false
-  let   channel = null   // Supabase Realtime 訂閱（外送需要即時推播，因為訂單是從後端寫入的）
+  let   channel = null
+
+  function getStoreId() { return useAuthStore().store?.id ?? null }
 
   function fromDb(row) {
     return {
-      id:              row.id,
-      pickupNumber:    row.pickup_number,
-      customerName:    row.customer_name,
-      customerPhone:   row.customer_phone,
+      id: row.id, pickupNumber: row.pickup_number,
+      customerName: row.customer_name, customerPhone: row.customer_phone,
       deliveryAddress: row.delivery_address,
-      items:           row.items ?? [],
-      note:            row.note,
-      subtotal:        row.subtotal,
-      total:           row.total,
-      status:          row.status,
-      uberStatus:      row.uber_status,
-      createdAt:       row.created_at,
+      items: row.items ?? [], note: row.note,
+      subtotal: row.subtotal, total: row.total,
+      status: row.status, uberStatus: row.uber_status,
+      createdAt: row.created_at,
     }
   }
 
   async function init() {
     if (loaded) return
+    const storeId = getStoreId()
+    if (!storeId) return
+
     loading.value = true
     error.value   = null
     try {
       const { data, error: err } = await supabase
         .from('delivery_orders')
         .select('*')
+        .eq('store_id', storeId)
         .eq('status', 'pending')
         .order('created_at')
       if (err) throw err
       orders.value = data.map(fromDb)
       loaded = true
 
-      /* ── Supabase Realtime：外送訂單是後端寫入的，前端不知道什麼時候來，
-            要靠即時推播而不是輪詢，否則新訂單要重新整理才能看到 ── */
+      // Realtime：只訂閱自己店的外送訂單
       channel = supabase
-        .channel('delivery_orders_changes')
+        .channel(`delivery_orders_${storeId}`)
         .on('postgres_changes', {
-          event:  'INSERT',
-          schema: 'public',
-          table:  'delivery_orders',
+          event: 'INSERT', schema: 'public', table: 'delivery_orders',
+          filter: `store_id=eq.${storeId}`,
         }, (payload) => {
-          /* 新訂單進來，直接加到本地佇列最前面 */
           orders.value.unshift(fromDb(payload.new))
         })
         .subscribe()
@@ -63,6 +59,11 @@ export const useDeliveryStore = defineStore('deliveryOrders', () => {
     } finally {
       loading.value = false
     }
+  }
+
+  function reset() {
+    orders.value = []; loaded = false
+    if (channel) { supabase.removeChannel(channel); channel = null }
   }
 
   async function completeOrder(id) {
@@ -78,5 +79,5 @@ export const useDeliveryStore = defineStore('deliveryOrders', () => {
     if (channel) { supabase.removeChannel(channel); channel = null }
   }
 
-  return { orders, loading, error, init, completeOrder, dispose }
+  return { orders, loading, error, init, reset, completeOrder, dispose }
 })
