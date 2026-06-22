@@ -40,6 +40,18 @@
         {{ currentLogo ? '更換 Logo' : '上傳 Logo' }}
         <input type="file" accept="image/*" class="ps__file-input" @change="handleLogoUpload" />
       </label>
+
+      <!-- 首頁 URL -->
+      <div class="ps__field" style="margin-top:14px">
+        <label class="ps__label">🔗 首頁連結 URL</label>
+        <input
+          v-model="homepageUrl"
+          class="ps__input"
+          type="url"
+          placeholder="https://your-restaurant.com"
+        />
+        <p class="ps__section-hint" style="margin-top:4px">點擊側邊欄 Logo 時開啟此連結</p>
+      </div>
     </section>
 
     <!-- ── 店家資訊 ── -->
@@ -148,6 +160,7 @@ import {
   getPrinterLayout, setPrinterLayout, resetPrinterLayout,
   getPrinterLogo, setPrinterLogo, removePrinterLogo,
   getPrinterQR, setPrinterQR, removePrinterQR,
+  getHomepageUrl, setHomepageUrl,
   checkPrinterStatus, DEFAULT_LAYOUT,
 } from '@/lib/printer.js'
 
@@ -167,8 +180,9 @@ async function testIp() {
 const layout = reactive({ ...getPrinterLayout() })
 
 /* ── Logo ── */
-const currentLogo = ref('')
-onMounted(() => { currentLogo.value = getPrinterLogo() })
+const currentLogo  = ref('')
+const homepageUrl  = ref('')
+onMounted(() => { currentLogo.value = getPrinterLogo(); homepageUrl.value = getHomepageUrl() })
 
 function handleLogoUpload(event) {
   const file = event.target.files?.[0]
@@ -214,6 +228,7 @@ function handleSave() {
   } else {
     removePrinterQR()
   }
+  setHomepageUrl(homepageUrl.value)
   saved.value = true
   setTimeout(() => { saved.value = false }, 2000)
 }
@@ -225,9 +240,10 @@ function handleReset() {
   removePrinterQR()
   ip.value = getPrinterIp()
   Object.assign(layout, DEFAULT_LAYOUT)
-  currentLogo.value = ''
-  currentQR.value   = ''
-  ipStatus.value    = null
+  currentLogo.value  = ''
+  currentQR.value    = ''
+  homepageUrl.value  = ''
+  ipStatus.value     = null
 }
 
 watch(layout, () => { saved.value = false })

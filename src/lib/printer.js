@@ -60,6 +60,15 @@ export function setPrinterQR(b64)    { try { localStorage.setItem(QR_KEY, b64) }
 export function removePrinterQR()    { try { localStorage.removeItem(QR_KEY) } catch(e) { console.error(e) } }
 
 /* ═══════════════════════════════════════════════
+   首頁 URL（側邊欄 Logo 連結）
+═══════════════════════════════════════════════ */
+const HOMEPAGE_URL_KEY = 'visionpos:homepageUrl'
+
+export function getHomepageUrl()      { try { return localStorage.getItem(HOMEPAGE_URL_KEY) || '' } catch { return '' } }
+export function setHomepageUrl(url)   { try { localStorage.setItem(HOMEPAGE_URL_KEY, url.trim()) } catch(e) { console.error(e) } }
+export function removeHomepageUrl()   { try { localStorage.removeItem(HOMEPAGE_URL_KEY) } catch(e) { console.error(e) } }
+
+/* ═══════════════════════════════════════════════
    工具函式
 ═══════════════════════════════════════════════ */
 function bigText(text) {

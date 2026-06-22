@@ -1,16 +1,27 @@
 <template>
   <aside class="sidebar">
 
-    <!-- Logo -->
-    <div class="sidebar__logo">
-      <svg width="36" height="36" viewBox="0 0 36 36" aria-label="餐廳 Logo">
+    <!-- Logo（有上傳時顯示自訂 logo，可點擊開啟首頁） -->
+    <component
+      :is="homepageUrl ? 'a' : 'div'"
+      class="sidebar__logo"
+      :class="{ 'sidebar__logo--custom': logoSrc }"
+      v-bind="homepageUrl ? { href: homepageUrl, target: '_blank', rel: 'noopener noreferrer' } : {}"
+    >
+      <img
+        v-if="logoSrc"
+        :src="logoSrc"
+        class="sidebar__logo-img"
+        alt="Logo"
+      />
+      <svg v-else width="36" height="36" viewBox="0 0 36 36" aria-label="餐廳 Logo">
         <circle cx="18" cy="18" r="17" fill="#bf2820"/>
         <circle cx="18" cy="18" r="13" fill="none" stroke="#fff" stroke-width="1.2"/>
         <path d="M13 14 Q18 9 23 14 Q20 18 18 19 Q16 18 13 14Z" fill="#fff"/>
         <path d="M14 22 Q18 25 22 22" fill="none" stroke="#fff" stroke-width="1.2" stroke-linecap="round"/>
         <line x1="18" y1="19" x2="18" y2="22" stroke="#fff" stroke-width="1.2"/>
       </svg>
-    </div>
+    </component>
 
     <!-- Nav Items -->
     <nav class="sidebar__nav">
@@ -35,13 +46,16 @@
 </template>
 
 <script setup>
-import { computed, defineComponent, h } from 'vue'
+import { computed, defineComponent, h, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { getPrinterLogo, getHomepageUrl } from '@/lib/printer.js'
 
 const route  = useRoute()
 const router = useRouter()
 
-const activeNav = computed(() => route.name)
+const activeNav   = computed(() => route.name)
+const logoSrc     = ref(getPrinterLogo())
+const homepageUrl = ref(getHomepageUrl())
 
 function navigate(name) {
   router.push({ name })
@@ -124,6 +138,13 @@ const navItems = [
   flex-shrink: 0;
 }
 
+.sidebar__logo-img {
+  max-width: 54px;
+  max-height: 54px;
+  object-fit: contain;
+  display: block;
+}
+
 .sidebar__logo {
   width: 54px;
   height: 54px;
@@ -134,6 +155,14 @@ const navItems = [
   align-items: center;
   justify-content: center;
   margin-bottom: 12px;
+  text-decoration: none;
+}
+
+/* 使用自訂 logo 圖片時，移除圓形背景、邊框 */
+.sidebar__logo--custom {
+  background: none;
+  border: none;
+  border-radius: 0;
 }
 
 .sidebar__nav {

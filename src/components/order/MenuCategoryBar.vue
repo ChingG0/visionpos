@@ -60,13 +60,13 @@ const emit = defineEmits(['select', 'update:search'])
 
 .mcb__title {
   font-size: 19px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--color-text-primary);
 }
 
 .mcb__title-light {
-  font-weight: 400;
-  color: var(--color-text-secondary);
+  font-weight: 500;
+  color: var(--color-text-primary);
 }
 
 .mcb__search {

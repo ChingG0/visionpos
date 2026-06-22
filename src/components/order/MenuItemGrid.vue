@@ -41,6 +41,7 @@ function qtyOf(item) {
 
 <style scoped>
 .mig {
+  margin-top:10px;
   flex: 1;
   overflow-y: auto;
   padding-right: 4px;
@@ -54,13 +55,13 @@ function qtyOf(item) {
 
 .mig__title {
   font-size: 19px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--color-text-primary);
 }
 
 .mig__title-light {
-  font-weight: 400;
-  color: var(--color-text-secondary);
+  font-weight: 500;
+  color: var(--color-text-primary);
 }
 
 /* ── Grid ── */
