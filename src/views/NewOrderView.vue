@@ -97,15 +97,22 @@ import { fetchTables, markTableOrdered, markTablePaid } from '@/lib/floorOrders.
 import { printOrderReceipt, getNextPickupNumber } from '@/lib/printer.js'
 import { useDineInStore } from '@/stores/dineInStore.js'
 
-const menuStore    = useMenuStore()
-const tagStore     = useTagStore()
+const menuStore       = useMenuStore()
+const tagStore        = useTagStore()
 const takeoutStore    = useTakeoutStore()
 const inventoryStore  = useInventoryStore()
 const dineInStore     = useDineInStore()
 
 /* ── 分類 / 搜尋 ── */
-const activeCategoryId = ref(menuStore.categories[0]?.id ?? '')
+const activeCategoryId = ref('')
 const searchQuery       = ref('')
+
+/* 分類載入完成後自動選第一個 */
+watch(() => menuStore.categories, (cats) => {
+  if (cats.length > 0 && !activeCategoryId.value) {
+    activeCategoryId.value = cats[0].id
+  }
+}, { immediate: true })
 
 /* 有搜尋字串時，搜尋全部「已上架」品項；否則依分類篩選「已上架」品項 */
 const filteredItems = computed(() => {
@@ -114,14 +121,11 @@ const filteredItems = computed(() => {
     ? menuStore.items.filter(i => i.status && i.name.includes(q))
     : menuStore.items.filter(i => i.status && i.categoryId === activeCategoryId.value)
 
-  /* publishAt 只會更新每個商品的 sortOrder 數值，不會搬動陣列本身的順序，
-     所以這裡一定要自己依 sortOrder 排，才會跟「點餐設定」拖曳的結果一致 */
   return [...list].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
 })
 
-/* ── 購物車（之後可改 Pinia cartStore，目前先放本頁） ── */
+/* ── 購物車 ── */
 const cartItems = ref([])
-/* cart line: { id, menuItemId, code, name, price, qty, icon } */
 
 function handleAddItem(item) {
   const existing = cartItems.value.find(l => l.menuItemId === item.id)
@@ -131,7 +135,7 @@ function handleAddItem(item) {
     cartItems.value.push({
       id:         `${item.id}-${Date.now()}`,
       menuItemId: item.id,
-      code:       item.code || '',   // 商品編號（A01, B02...），供列印排序用
+      code:       item.code || '',
       name:       item.name,
       price:      item.price,
       qty:        1,
@@ -168,7 +172,6 @@ function clearCart() {
   sessionStorage.removeItem(CART_KEY)
 }
 
-/* 商品格右上角數量徽章用：menuItemId → 總數量 */
 const cartQtyMap = computed(() => {
   const map = {}
   for (const line of cartItems.value) {
@@ -177,11 +180,11 @@ const cartQtyMap = computed(() => {
   return map
 })
 
-/* ── 訂單層級附加資訊：標籤 / 備註 / 加價 / 折扣 ── */
+/* ── 訂單層級附加資訊 ── */
 const selectedTagIds = ref([])
-const note            = ref('')
-const surcharge        = ref(null)
-const discount         = ref(null)
+const note           = ref('')
+const surcharge      = ref(null)
+const discount       = ref(null)
 
 /* ── 外帶客戶資訊 ── */
 const customerName  = ref('')
@@ -192,8 +195,8 @@ const selectedTagObjects = computed(() =>
 )
 
 /* ── 內用 / 外帶 ── */
-const orderType      = ref('dine-in')
-const selectedTable   = ref(null)
+const orderType     = ref('dine-in')
+const selectedTable = ref(null)
 
 const route = useRoute()
 const CART_KEY = 'visionpos:cart'
@@ -205,20 +208,20 @@ onMounted(async () => {
     try {
       const d = JSON.parse(saved)
       if (d.items?.length) {
-        cartItems.value     = d.items     ?? []
-        orderType.value     = d.orderType ?? 'dine-in'
-        selectedTable.value = d.seat      ?? null
-        selectedTagIds.value= d.tags      ?? []
-        note.value          = d.note      ?? ''
-        surcharge.value     = d.surcharge ?? null
-        discount.value      = d.discount  ?? null
-        customerName.value  = d.customerName  ?? ''
-        customerPhone.value = d.customerPhone ?? ''
+        cartItems.value      = d.items        ?? []
+        orderType.value      = d.orderType    ?? 'dine-in'
+        selectedTable.value  = d.seat         ?? null
+        selectedTagIds.value = d.tags         ?? []
+        note.value           = d.note         ?? ''
+        surcharge.value      = d.surcharge    ?? null
+        discount.value       = d.discount     ?? null
+        customerName.value   = d.customerName  ?? ''
+        customerPhone.value  = d.customerPhone ?? ''
       }
     } catch (e) { console.warn('[cart] 還原購物車失敗', e) }
   }
 
-  /* 從內用頁「加單」跳轉過來時，帶有 seatId/seatName query */
+  /* 從內用頁「加單」跳轉過來時 */
   if (route.query.seatId && route.query.seatName) {
     orderType.value     = 'dine-in'
     selectedTable.value = { id: route.query.seatId, name: route.query.seatName }
@@ -226,9 +229,13 @@ onMounted(async () => {
 
   await menuStore.init()
   await tagStore.init()
+
+  if (menuStore.categories.length > 0 && !activeCategoryId.value) {
+    activeCategoryId.value = menuStore.categories[0].id
+  }
 })
 
-/* 購物車有內容時，自動存到 sessionStorage（切頁不會遺失） */
+/* 購物車自動存 sessionStorage */
 watch(
   [cartItems, orderType, selectedTable, selectedTagIds, note, surcharge, discount, customerName, customerPhone],
   () => {
@@ -247,6 +254,7 @@ watch(
   },
   { deep: true }
 )
+
 const showTablePicker = ref(false)
 const availableTables = ref([])
 const loadingTables   = ref(false)
@@ -288,14 +296,12 @@ const total = computed(() =>
 /* ── 結帳流程 ── */
 const showPaymentModal = ref(false)
 
-/* Step 1：點結帳先驗證，再開付款 Modal */
 function handleCharge() {
   if (cartItems.value.length === 0) return
   if (orderType.value === 'dine-in' && !selectedTable.value) { openTablePicker(); return }
   showPaymentModal.value = true
 }
 
-/* Step 2：付款 Modal 確認後才真正送出訂單 */
 async function handlePaymentConfirmed({ method, methodLabel, paymentAmount, changeAmount }) {
   showPaymentModal.value = false
 
@@ -327,7 +333,6 @@ async function handlePaymentConfirmed({ method, methodLabel, paymentAmount, chan
     })
     if (order?.id) inventoryStore.deductByOrder(order.id, cartItems.value)
   } else {
-    /* 稍後付款 → 橙色（未結帳）；其他付款方式 → 綠色（已結帳） */
     const isDefer = (method === 'defer')
     await (isDefer ? markTableOrdered : markTablePaid)(selectedTable.value.id)
 
@@ -339,7 +344,6 @@ async function handlePaymentConfirmed({ method, methodLabel, paymentAmount, chan
     if (order?.id) inventoryStore.deductByOrder(order.id, cartItems.value)
   }
 
-  /* 列印：fire-and-forget，不 await，避免無出單機時卡 3 秒 */
   printOrderReceipt({
     pickupNumber,
     orderType: orderType.value,
