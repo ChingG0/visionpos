@@ -1,6 +1,14 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { supabase } from '@/lib/supabase.js'
+import { useMenuStore }        from '@/stores/menuStore.js'
+import { useTagStore }         from '@/stores/tagStore.js'
+import { useReservationStore } from '@/stores/reservationStore.js'
+import { useMemberStore }      from '@/stores/memberStore.js'
+import { useDineInStore }      from '@/stores/dineInStore.js'
+import { useTakeoutStore }     from '@/stores/takeoutStore.js'
+import { useDeliveryStore }    from '@/stores/deliveryStore.js'
+import { useInventoryStore }   from '@/stores/inventoryStore.js'
 
 const LS_KEY = 'visionpos_auth'
 
@@ -103,12 +111,21 @@ export const useAuthStore = defineStore('auth', () => {
       loading.value = false
     }
   }
+function logout() {
+  // 清掉所有 store 快取
+  useMenuStore().reset()
+  useTagStore().reset()
+  useReservationStore().reset()
+  useMemberStore().reset()
+  useDineInStore().reset()
+  useTakeoutStore().reset()
+  useDeliveryStore().reset()
+  useInventoryStore().fetchIngredients  // inventoryStore 沒有 reset，每次都重新 fetch
 
-  function logout() {
-    store.value = null
-    user.value  = null
-    persist()
-  }
+  store.value = null
+  user.value  = null
+  persist()
+}
 
   async function fetchStaff() {
     if (!store.value) return []

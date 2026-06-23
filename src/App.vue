@@ -91,12 +91,12 @@ startHeartbeat()
 @import '@/assets/main.css';
 
 .ipad-frame {
-  width: 100%;
-  max-width: 1024px;
-  aspect-ratio: 4 / 3;
-  background: var(--color-bg-app);
-  border-radius: var(--radius-xl);
-  border: 2px solid var(--color-border-base);
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  aspect-ratio: unset;
+  border-radius: 0;
+  border: none;
   display: flex;
   overflow: hidden;
   position: relative;
