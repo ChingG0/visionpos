@@ -218,11 +218,21 @@
 <script setup>
 import { ref, computed, nextTick, watch, onMounted } from 'vue'
 import { supabase } from '@/lib/supabase.js'
+function getStoreId() {
+  try {
+    const raw = localStorage.getItem('visionpos_auth')
+    const { s } = JSON.parse(raw ?? '{}')
+    return s?.id ?? null
+  } catch { return null }
+}
 
 async function loadLayout(floor) {
+  const storeId = getStoreId()
+  if (!storeId) return null
   const { data, error } = await supabase
     .from('floor_layouts')
     .select('items')
+    .eq('store_id', storeId)
     .eq('floor_id', floor)
     .maybeSingle()
   if (error) { console.error('[FloorMap] 讀取座位圖失敗', error); return null }
@@ -230,9 +240,10 @@ async function loadLayout(floor) {
 }
 
 async function saveLayout(floor, items) {
+  const storeId = getStoreId()
   const { error } = await supabase
     .from('floor_layouts')
-    .upsert({ floor_id: floor, items, updated_at: new Date().toISOString() })
+    .upsert({ store_id: storeId, floor_id: floor, items, updated_at: new Date().toISOString() })
   if (error) console.error('[FloorMap] 儲存座位圖失敗', error)
 }
 
@@ -326,33 +337,6 @@ let _uid = 30
 
 /* 預設座位圖：只在 Supabase 該樓層還沒有任何資料時（第一次使用）當起點 */
 const DEFAULT_ITEMS = [
-  // Right column: 大桌 1 + 座位
-  { id:1,  type:'square-table', x:212, y:75,  rotation:0, scaleX:1.2, scaleY:1.2, name:'1號桌', status:'paid' },
-  { id:2,  type:'chair',        x:175, y:32,  rotation:0, scaleX:1, scaleY:1,   name:'A1',   status:'paid' },
-  { id:3,  type:'chair',        x:175, y:66,  rotation:0, scaleX:1, scaleY:1,   name:'A2',   status:'paid' },
-  { id:4,  type:'chair',        x:175, y:110, rotation:0, scaleX:1, scaleY:1,   name:'A3',   status:'empty' },
-  // Right column: 大桌 2 + 座位
-  { id:5,  type:'square-table', x:212, y:228, rotation:0, scaleX:1.2, scaleY:1.2, name:'2號桌', status:'empty' },
-  { id:6,  type:'chair',        x:175, y:177, rotation:0, scaleX:1, scaleY:1,   name:'A4',   status:'empty' },
-  { id:7,  type:'chair',        x:175, y:212, rotation:0, scaleX:1, scaleY:1,   name:'A5',   status:'empty' },
-  { id:8,  type:'chair',        x:175, y:246, rotation:0, scaleX:1, scaleY:1,   name:'A6',   status:'empty' },
-  { id:9,  type:'chair',        x:175, y:280, rotation:0, scaleX:1, scaleY:1,   name:'A7',   status:'empty' },
-  // Middle: 小桌 A + 座位
-  { id:10, type:'square-table', x:126, y:196, rotation:0, scaleX:0.9, scaleY:0.9, name:'3號桌', status:'ordered' },
-  { id:11, type:'chair',        x:118, y:163, rotation:0, scaleX:0.9, scaleY:0.9, name:'B1',   status:'ordered' },
-  // Middle: 小桌 B + 座位
-  { id:12, type:'square-table', x:126, y:272, rotation:0, scaleX:0.9, scaleY:0.9, name:'4號桌', status:'ordered' },
-  { id:13, type:'chair',        x:118, y:239, rotation:0, scaleX:0.9, scaleY:0.9, name:'B2',   status:'ordered' },
-  // Bottom: 大橫桌 + 座位
-  { id:14, type:'square-table', x:80,  y:241, rotation:0, scaleX:1.8, scaleY:1.8, name:'5號桌', status:'empty' },
-  { id:15, type:'chair',        x:38,  y:204, rotation:0, scaleX:1, scaleY:1,   name:'C1',   status:'empty' },
-  { id:16, type:'chair',        x:62,  y:204, rotation:0, scaleX:1, scaleY:1,   name:'C2',   status:'empty' },
-  { id:17, type:'chair',        x:86,  y:204, rotation:0, scaleX:1, scaleY:1,   name:'C3',   status:'empty' },
-  { id:18, type:'chair',        x:110, y:204, rotation:0, scaleX:1, scaleY:1,   name:'C4',   status:'empty' },
-  { id:19, type:'chair',        x:38,  y:278, rotation:0, scaleX:1, scaleY:1,   name:'C5',   status:'empty' },
-  { id:20, type:'chair',        x:62,  y:278, rotation:0, scaleX:1, scaleY:1,   name:'C6',   status:'empty' },
-  { id:21, type:'chair',        x:86,  y:278, rotation:0, scaleX:1, scaleY:1,   name:'C7',   status:'empty' },
-  { id:22, type:'chair',        x:110, y:278, rotation:0, scaleX:1, scaleY:1,   name:'C8',   status:'empty' },
 ]
 
 const floorItems      = ref([])         // 先空陣列，避免畫面先閃出預設座位圖再跳成儲存版

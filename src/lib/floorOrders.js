@@ -1,13 +1,25 @@
 import { supabase } from '@/lib/supabase.js'
 
-/* ── 讀取全部樓層的 layout ── */
+function getStoreId() {
+  try {
+    const raw = localStorage.getItem('visionpos_auth')
+    const { s } = JSON.parse(raw ?? '{}')
+    return s?.id ?? null
+  } catch { return null }
+}
+
+/* ── 讀取目前店家的所有樓層 layout ── */
 async function fetchAllLayouts() {
-  const { data, error } = await supabase.from('floor_layouts').select('floor_id, items')
+  const storeId = getStoreId()
+  if (!storeId) return []
+  const { data, error } = await supabase
+    .from('floor_layouts')
+    .select('floor_id, items')
+    .eq('store_id', storeId)
   if (error) { console.error('[floorOrders] 讀取座位圖失敗', error); return [] }
   return data ?? []
 }
 
-/* 在所有樓層中找到指定 item（String 比較避免 number/string 型別問題） */
 async function findItemAcrossFloors(seatId) {
   const layouts = await fetchAllLayouts()
   for (const layout of layouts) {
@@ -19,22 +31,19 @@ async function findItemAcrossFloors(seatId) {
   return null
 }
 
-/* 儲存指定樓層的 items */
 async function saveFloorItems(floorId, items) {
-  const { error } = await supabase.from('floor_layouts')
-    .upsert({ floor_id: floorId, items, updated_at: new Date().toISOString() })
+  const storeId = getStoreId()
+  const { error } = await supabase
+    .from('floor_layouts')
+    .upsert({ floor_id: floorId, items, store_id: storeId, updated_at: new Date().toISOString() })
   if (error) console.error('[floorOrders] 儲存失敗', error)
 }
 
-/* ── 公開 API ── */
-
-/* 供「選桌號」Modal 使用：列出所有樓層中有名稱的 item */
 export async function fetchTables() {
   const layouts = await fetchAllLayouts()
   return layouts.flatMap(l => l.items ?? []).filter(i => i.name)
 }
 
-/* 送出訂單（稍後付款）→ 橙色（未結帳）*/
 export async function markTableOrdered(seatId) {
   const result = await findItemAcrossFloors(seatId)
   if (!result) return false
@@ -43,7 +52,6 @@ export async function markTableOrdered(seatId) {
   return true
 }
 
-/* 送出訂單（已付款）→ 綠色（已結帳）*/
 export async function markTablePaid(seatId) {
   const result = await findItemAcrossFloors(seatId)
   if (!result) return false
@@ -52,7 +60,6 @@ export async function markTablePaid(seatId) {
   return true
 }
 
-/* 帶位後批次標記多個座位（可跨樓層）*/
 export async function markSeatsOrdered(seatIds) {
   if (!seatIds?.length) return false
   const layouts   = await fetchAllLayouts()
@@ -81,11 +88,9 @@ export async function markSeatsOrdered(seatIds) {
   return true
 }
 
-/* 完成結帳後重置座位（及同組所有座位）為空位 */
 export async function resetSeatStatus(seatId) {
   const layouts = await fetchAllLayouts()
 
-  /* 找出主座位的 groupSeats */
   let groupIds = [seatId]
   for (const layout of layouts) {
     const me = (layout.items ?? []).find(i => String(i.id) === String(seatId))
