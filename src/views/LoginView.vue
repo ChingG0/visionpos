@@ -21,6 +21,7 @@
           <input
             v-model="storeCode"
             class="login__input"
+            @input="storeCode = storeCode.toUpperCase()"
             type="text"
             placeholder="店家代碼"
             autocomplete="off"

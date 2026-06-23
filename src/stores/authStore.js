@@ -55,7 +55,7 @@ export const useAuthStore = defineStore('auth', () => {
       const { data: storeData, error: sErr } = await supabase
         .from('stores')
         .select('id, code, name')
-        .eq('code', storeCode.trim())
+        .eq('code', storeCode.trim().toLowerCase())
         .single()
       if (sErr || !storeData) { error.value = '店家代碼不正確'; return false }
 
