@@ -85,7 +85,7 @@ onMounted(() => {
 
 .ipad-frame {
   width: 100vw;
-  height: 100vh;
+  height: 100dvh;          /* 動態視窗高度，自動排除網址列 */
   max-width: none;
   aspect-ratio: unset;
   border-radius: 0;
@@ -94,6 +94,9 @@ onMounted(() => {
   overflow: hidden;
   position: relative;
   flex-direction: column;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  box-sizing: border-box;
 }
 
 .offline-banner {
