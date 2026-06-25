@@ -14,6 +14,15 @@ import MemberManagementView  from '@/views/MemberManagementView.vue'
 import DeviceManagementView  from '@/views/DeviceManagementView.vue'
 import StaffManagementView   from '@/views/StaffManagementView.vue'
 
+// cashier 不能進入的頁面
+const MANAGER_ONLY_ROUTES = [
+  'ProductManagement',
+  'Inventory',
+  'MemberManagement',
+  'StaffManagement',
+  'Reports',
+]
+
 const routes = [
   { path: '/login', name: 'Login', component: LoginView, meta: { public: true } },
   { path: '/', redirect: '/login' },
@@ -21,7 +30,7 @@ const routes = [
   {
     path: '/store/:storeCode',
     children: [
-      { path: '',            redirect: to => ({ name: 'NewOrder', params: { storeCode: to.params.storeCode } }) },
+      { path: '', redirect: to => ({ name: 'NewOrder', params: { storeCode: to.params.storeCode } }) },
       { path: 'new-order',   name: 'NewOrder',    component: NewOrderView },
       { path: 'dine-in',     name: 'DineIn',      component: DineInView },
       { path: 'takeout',     name: 'Takeout',     component: TakeoutView },
@@ -37,7 +46,6 @@ const routes = [
     ],
   },
 
-  // 任何找不到的路徑都導向登入（處理 iOS PWA 重新整理）
   { path: '/:pathMatch(.*)*', redirect: '/login' },
 ]
 
@@ -56,7 +64,13 @@ router.beforeEach((to) => {
   // 未登入 → 登入頁
   if (!isLoggedIn) return { name: 'Login' }
 
-  // 已登入但沒有 storeCode（例如直接打開 app 首頁）→ 自動補上
+  // cashier 嘗試進入受限頁面 → 導回點餐
+  const role = auth.u?.role ?? ''
+  if (role === 'cashier' && MANAGER_ONLY_ROUTES.includes(to.name)) {
+    return { name: 'NewOrder', params: { storeCode: auth.s?.code } }
+  }
+
+  // 已登入但 URL 沒有 storeCode → 自動補上
   if (!to.params.storeCode && auth.s?.code) {
     return { name: to.name ?? 'NewOrder', params: { storeCode: auth.s.code } }
   }

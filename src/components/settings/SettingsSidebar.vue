@@ -5,14 +5,16 @@
 
       <!-- 營運報表：可展開的群組 -->
       <div class="ss__group">
-        <button
-          class="ss__nav-item"
-          :class="{ 'ss__nav-item--active': route.name === 'Reports' }"
-          @click="handleReportsClick"
-        >
-          <IconReports class="ss__nav-icon" />
-          <span>營運報表</span>
-        </button>
+        <div v-if="canSeeReports" class="ss__group">
+          <button
+            class="ss__nav-item"
+            :class="{ 'ss__nav-item--active': route.name === 'Reports' }"
+            @click="handleReportsClick"
+          >
+            <IconReports class="ss__nav-icon" />
+            <span>營運報表</span>
+          </button>          
+        </div>
 
         <!-- 展開的子分頁 -->
         <div v-if="reportsExpanded" class="ss__sub-nav">
@@ -102,6 +104,10 @@ watch(() => route.name, (name) => {
   if (name === 'Reports') reportsExpanded.value = true
 }, { immediate: true })
 
+const canSeeReports = computed(() =>
+  ['owner', 'manager', 'superadmin'].includes(authStore.user?.role ?? '')
+)
+
 function handleReportsClick() {
   if (route.name === 'Reports') {
     reportsExpanded.value = !reportsExpanded.value
@@ -147,12 +153,6 @@ function goDevicePage(key) {
 
 function isActiveDevicePage(key) {
   return route.name === 'DeviceManagement' && (route.query.page || 'printer') === key
-}
-
-/* ── 登出 ── */
-function handleLogout() {
-  authStore.logout()
-  router.replace({ name: 'Login' })
 }
 
 /* ── Icons ── */
@@ -216,14 +216,21 @@ const IconStaff = defineComponent({
   ])
 })
 
-const otherNavItems = [
-  { id: 'ProductManagement', label: '商品管理', icon: IconProducts },
-  { id: 'OrderSettings',     label: '點餐設定', icon: IconOrderSettings },
-  { id: 'Inventory',         label: '庫存管理', icon: IconInventory },
-  { id: 'MemberManagement',  label: '會員管理', icon: IconMembers },
-  { id: 'StaffManagement',   label: '員工管理', icon: IconStaff },
-  { id: 'DeviceManagement',  label: '設備管理', icon: IconDevice, isDevice: true },
+import { computed } from 'vue'
+
+const ALL_NAV_ITEMS = [
+  { id: 'ProductManagement', label: '商品管理', icon: IconProducts,      roles: ['owner', 'manager', 'superadmin'] },
+  { id: 'OrderSettings',     label: '點餐設定', icon: IconOrderSettings, roles: ['owner', 'manager', 'superadmin', 'cashier'] },
+  { id: 'Inventory',         label: '庫存管理', icon: IconInventory,     roles: ['owner', 'manager', 'superadmin'] },
+  { id: 'MemberManagement',  label: '會員管理', icon: IconMembers,       roles: ['owner', 'manager', 'superadmin'] },
+  { id: 'StaffManagement',   label: '員工管理', icon: IconStaff,         roles: ['owner', 'manager', 'superadmin'] },
+  { id: 'DeviceManagement',  label: '設備管理', icon: IconDevice,        roles: ['owner', 'manager', 'superadmin', 'cashier'], isDevice: true },
 ]
+
+const otherNavItems = computed(() => {
+  const role = authStore.user?.role ?? ''
+  return ALL_NAV_ITEMS.filter(item => item.roles.includes(role))
+})
 </script>
 
 <style scoped>

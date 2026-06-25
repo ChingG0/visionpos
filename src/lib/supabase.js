@@ -1,13 +1,26 @@
+// =============================================================================
+// src/lib/supabase.js
+// 每個請求自動帶上 x-store-id header，配合 RLS policy
+// =============================================================================
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl     = 'https://axwsootizanehojafwnw.supabase.co'
-const supabaseAnonKey = 'sb_publishable_Z_0EYSQNUOUAofp00qSZiw_RB5_nMQI'
+const SUPABASE_URL     = 'https://axwsootizanehojafwnw.supabase.co'
+const SUPABASE_ANON_KEY = 'sb_publishable_Z_0EYSQNUOUAofp00qSZiw_RB5_nMQI'
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error(
-    '[Supabase] 缺少環境變數。請在專案根目錄建立 .env 檔案，' +
-    '並填入 VITE_SUPABASE_URL 與 VITE_SUPABASE_ANON_KEY（可參考 .env.example）。'
-  )
+// 取得目前登入的 store_id
+function getStoreId() {
+  try {
+    const raw = localStorage.getItem('visionpos_auth')
+    const { s } = JSON.parse(raw ?? '{}')
+    return s?.id ?? null
+  } catch { return null }
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+// 建立 Supabase client，每次請求動態注入 x-store-id
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  global: {
+    headers: {
+      get 'x-store-id'() { return getStoreId() ?? '' }
+    }
+  }
+})

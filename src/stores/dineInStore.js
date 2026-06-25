@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/authStore.js'
 export const useDineInStore = defineStore('dineInOrders', () => {
   const activeOrders = ref({})
   const loading      = ref(false)
+  let   channel      = null
 
   function getStoreId() { return useAuthStore().store?.id ?? null }
 
@@ -20,16 +21,34 @@ export const useDineInStore = defineStore('dineInOrders', () => {
     }
   }
 
+  function applyOrder(order) {
+    if (!activeOrders.value[order.seatId]) activeOrders.value[order.seatId] = []
+    const arr = activeOrders.value[order.seatId]
+    const idx = arr.findIndex(o => o.id === order.id)
+    if (idx >= 0) arr[idx] = order
+    else arr.push(order)
+  }
+
+  function removeOrder(orderId, seatId) {
+    const arr = (activeOrders.value[seatId] ?? []).filter(o => o.id !== orderId)
+    if (arr.length === 0) delete activeOrders.value[seatId]
+    else activeOrders.value[seatId] = arr
+  }
+
   async function init() {
     const storeId = getStoreId()
     if (!storeId) return
+    loading.value = true
+
     const { data, error } = await supabase
       .from('dine_in_orders')
       .select('*')
       .eq('store_id', storeId)
       .eq('status', 'active')
       .order('created_at')
-    if (error) { console.error('[dineInStore] init 失敗', error); return }
+
+    if (error) { console.error('[dineInStore] init 失敗', error); loading.value = false; return }
+
     const map = {}
     for (const row of data ?? []) {
       const order = fromDb(row)
@@ -37,9 +56,49 @@ export const useDineInStore = defineStore('dineInOrders', () => {
       map[order.seatId].push(order)
     }
     activeOrders.value = map
+    loading.value = false
+
+    // ── Realtime 訂閱（多人即時同步）────────────────────────────────────────
+    if (channel) supabase.removeChannel(channel)
+
+    channel = supabase
+      .channel(`dine_in_orders_${storeId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'dine_in_orders',
+        filter: `store_id=eq.${storeId}`,
+      }, (payload) => {
+        const { eventType, new: newRow, old: oldRow } = payload
+
+        if (eventType === 'INSERT') {
+          const order = fromDb(newRow)
+          if (order.status === 'active') applyOrder(order)
+        }
+
+        if (eventType === 'UPDATE') {
+          const order = fromDb(newRow)
+          if (order.status === 'active') {
+            applyOrder(order)
+          } else {
+            // 完成或取消 → 從 activeOrders 移除
+            removeOrder(order.id, order.seatId)
+          }
+        }
+
+        if (eventType === 'DELETE') {
+          const seatId = oldRow.seat_id
+          const orderId = oldRow.id
+          removeOrder(orderId, seatId)
+        }
+      })
+      .subscribe()
   }
 
-  function reset() { activeOrders.value = {} }
+  function reset() {
+    activeOrders.value = {}
+    if (channel) { supabase.removeChannel(channel); channel = null }
+  }
 
   async function addOrder({ seatId, seatName, items, tags, note, surcharge, discount, subtotal, total, paymentMethod, paymentAmount, changeAmount }) {
     const storeId = getStoreId()
@@ -56,10 +115,8 @@ export const useDineInStore = defineStore('dineInOrders', () => {
       })
       .select().single()
     if (error) { console.error('[dineInStore] 新增失敗', error); return null }
-    const order = fromDb(data)
-    if (!activeOrders.value[seatId]) activeOrders.value[seatId] = []
-    activeOrders.value[seatId].push(order)
-    return order
+    // Realtime 會自動更新 activeOrders，不需要手動 push
+    return fromDb(data)
   }
 
   function getOrdersBySeatId(seatId) { return activeOrders.value[seatId] ?? [] }
@@ -71,10 +128,8 @@ export const useDineInStore = defineStore('dineInOrders', () => {
       .update({ status: 'done', completed_at: new Date().toISOString() })
       .eq('id', orderId)
     if (error) { console.error('[dineInStore] 完成失敗', error); return false }
-    const arr = (activeOrders.value[seatId] ?? []).filter(o => o.id !== orderId)
-    if (arr.length === 0) { delete activeOrders.value[seatId]; return 'last' }
-    activeOrders.value[seatId] = arr
-    return 'more'
+    // Realtime 會自動移除
+    return 'last'
   }
 
   async function completeOrders(orderIds, seatId) {
@@ -83,10 +138,7 @@ export const useDineInStore = defineStore('dineInOrders', () => {
         .update({ status: 'done', completed_at: new Date().toISOString() })
         .eq('id', id)
     ))
-    const arr = (activeOrders.value[seatId] ?? []).filter(o => !orderIds.includes(o.id))
-    if (arr.length === 0) { delete activeOrders.value[seatId]; return 'last' }
-    activeOrders.value[seatId] = arr
-    return 'more'
+    return 'last'
   }
 
   async function cancelOrder(orderId, seatId, { reason, staff }) {
@@ -95,10 +147,7 @@ export const useDineInStore = defineStore('dineInOrders', () => {
       .update({ status: 'cancelled', completed_at: new Date().toISOString(), note: `[取消] 原因：${reason}　操作：${staff}` })
       .eq('id', orderId)
     if (error) { console.error('[dineInStore] 取消失敗', error); return false }
-    const arr = (activeOrders.value[seatId] ?? []).filter(o => o.id !== orderId)
-    if (arr.length === 0) { delete activeOrders.value[seatId]; return 'last' }
-    activeOrders.value[seatId] = arr
-    return 'more'
+    return 'last'
   }
 
   function markOrdersPaid(seatId, orderIds, methodLabel, paymentAmount, changeAmount) {
@@ -111,5 +160,10 @@ export const useDineInStore = defineStore('dineInOrders', () => {
     )
   }
 
-  return { activeOrders, loading, init, reset, addOrder, getOrderBySeatId, getOrdersBySeatId, completeOrder, completeOrders, cancelOrder, markOrdersPaid }
+  return {
+    activeOrders, loading,
+    init, reset, addOrder,
+    getOrderBySeatId, getOrdersBySeatId,
+    completeOrder, completeOrders, cancelOrder, markOrdersPaid,
+  }
 })

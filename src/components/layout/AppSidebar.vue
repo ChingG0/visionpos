@@ -40,7 +40,7 @@
     <div class="sidebar__spacer" />
 
     <!-- Settings -->
-    <button class="sidebar__settings" @click="router.push({ name: 'Reports' })">後台設定</button>
+    <button class="sidebar__settings" @click="goSettings">後台設定</button>
 
   </aside>
 </template>
@@ -49,6 +49,17 @@
 import { computed, defineComponent, h, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getPrinterLogo, getHomepageUrl } from '@/lib/printer.js'
+import { useAuthStore } from '@/stores/authStore.js'
+const authStore = useAuthStore()
+
+function goSettings() {
+  const role = authStore.user?.role ?? ''
+  if (role === 'cashier') {
+    router.push({ name: 'OrderSettings' })
+  } else {
+    router.push({ name: 'Reports' })
+  }
+}
 
 const route  = useRoute()
 const router = useRouter()
