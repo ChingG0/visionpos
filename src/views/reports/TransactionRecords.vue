@@ -13,9 +13,8 @@
       <div class="tr__date-custom">
         <input type="date" class="tr__date-input" v-model="customStart" @change="applyCustom" />
         <span>～</span>
-        <input type="date" class="tr__date-input" v-model="customEnd"   @change="applyCustom" />
+        <input type="date" class="tr__date-input" v-model="customEnd" @change="applyCustom" />
       </div>
-      <!-- 類型篩選 -->
       <div class="tr__type-filter">
         <button v-for="opt in TYPE_OPTS" :key="opt.key"
           class="tr__type-btn" :class="{ 'tr__type-btn--active': typeFilter === opt.key }"
@@ -46,14 +45,19 @@
             <th class="tr__th tr__th--num">折扣</th>
             <th class="tr__th tr__th--num">總計</th>
             <th class="tr__th">付款方式</th>
+            <th class="tr__th">後4碼</th>
+            <th class="tr__th">載具/統編</th>
+            <th class="tr__th">發票號碼</th>
+            <th class="tr__th">隨機碼</th>
+            <th class="tr__th">作廢</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="reportsStore.loading">
-            <td colspan="9" class="tr__empty">載入中...</td>
+            <td colspan="14" class="tr__empty">載入中...</td>
           </tr>
           <tr v-else-if="filtered.length === 0">
-            <td colspan="9" class="tr__empty">此期間無交易紀錄</td>
+            <td colspan="14" class="tr__empty">此期間無交易紀錄</td>
           </tr>
           <template v-else>
             <tr v-for="order in filtered" :key="order.id" class="tr__row">
@@ -68,9 +72,7 @@
                   {{ order.typeLabel }}
                 </span>
               </td>
-              <td class="tr__td tr__td--id">
-                #{{ formatOrderId(order) }}
-              </td>
+              <td class="tr__td tr__td--id">#{{ formatOrderId(order) }}</td>
               <td class="tr__td">{{ order.customer_name || '—' }}</td>
               <td class="tr__td tr__td--items">{{ summarizeItems(order.items) }}</td>
               <td class="tr__td tr__td--num">${{ fmtNum(order.subtotal) }}</td>
@@ -79,9 +81,36 @@
               </td>
               <td class="tr__td tr__td--num tr__td--total">${{ fmtNum(order.total) }}</td>
               <td class="tr__td">
-                <span v-if="order.payment_method" class="tr__pay-badge">
-                  {{ order.payment_method }}
+                <span v-if="order.payment_method" class="tr__pay-badge">{{ order.payment_method }}</span>
+                <span v-else class="tr__td--muted">—</span>
+              </td>
+              <!-- 後4碼 -->
+              <td class="tr__td tr__td--mono">
+                {{ order.card4 ? `${order.card4}` : '—' }}
+              </td>
+              <!-- 載具/統編 -->
+              <td class="tr__td tr__td--mono">
+                <span v-if="order.carrier_num" class="tr__carrier-badge">{{ order.carrier_num }}</span>
+                <span v-else-if="order.buyer_tax_id" class="tr__taxid-badge">統{{ order.buyer_tax_id }}</span>
+                <span v-else class="tr__td--muted">—</span>
+              </td>
+              <!-- 發票號碼 -->
+              <td class="tr__td tr__td--mono">
+                <span v-if="invoiceMap[order.id]?.invoice_number" class="tr__invoice-num">
+                  {{ invoiceMap[order.id].invoice_number }}
                 </span>
+                <span v-else class="tr__td--muted">—</span>
+              </td>
+              <!-- 隨機碼 -->
+              <td class="tr__td tr__td--mono">
+                {{ invoiceMap[order.id]?.random_code || '—' }}
+              </td>
+              <!-- 作廢 -->
+              <td class="tr__td">
+                <template v-if="invoiceMap[order.id]">
+                  <span v-if="invoiceMap[order.id].status === 'void'" class="tr__void-badge">已作廢</span>
+                  <button v-else class="tr__void-btn" @click="confirmVoid(order, invoiceMap[order.id])">作廢</button>
+                </template>
                 <span v-else class="tr__td--muted">—</span>
               </td>
             </tr>
@@ -90,7 +119,39 @@
       </table>
     </div>
 
-    <p class="tr__note">※ 目前記錄外帶與外送已完成訂單，內用訂單表建立後會一併顯示</p>
+    <p class="tr__note">※ 記錄外帶、內用、外送已完成訂單</p>
+
+    <!-- 作廢確認 Modal -->
+    <Teleport to="body">
+      <div v-if="voidingInvoice" class="tr__void-modal-bg" @click.self="voidingInvoice = null">
+        <div class="tr__void-modal">
+          <h3>確認作廢發票</h3>
+          <div class="tr__void-info">
+            <div>發票號碼：<strong>{{ voidingInvoice.invoice_number }}</strong></div>
+            <div>訂單：<strong>#{{ formatOrderId(voidingOrder) }}</strong></div>
+            <div>金額：<strong>${{ fmtNum(voidingOrder?.total) }}</strong></div>
+          </div>
+          <div class="tr__void-reason-wrap">
+            <label>作廢原因 <span class="tr__void-required">*</span></label>
+            <select v-model="voidReason" class="tr__void-select">
+              <option value="">請選擇原因</option>
+              <option value="錯誤開立">錯誤開立</option>
+              <option value="顧客要求">顧客要求</option>
+              <option value="訂單取消">訂單取消</option>
+              <option value="金額錯誤">金額錯誤</option>
+              <option value="其他">其他</option>
+            </select>
+            <input v-if="voidReason === '其他'" v-model="voidReasonOther" class="tr__void-input" placeholder="請輸入原因" />
+          </div>
+          <div class="tr__void-actions">
+            <button class="tr__void-cancel" @click="voidingInvoice = null">取消</button>
+            <button class="tr__void-confirm" :disabled="!voidReason || voiding" @click="doVoid">
+              {{ voiding ? '作廢中...' : '確認作廢' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
   </div>
 </template>
@@ -98,8 +159,11 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useReportsStore } from '@/stores/reportsStore.js'
+import { supabase } from '@/lib/supabase.js'
+import { useAuthStore } from '@/stores/authStore.js'
 
 const reportsStore = useReportsStore()
+const authStore    = useAuthStore()
 
 const DATE_OPTS = [
   { key: 'today',     label: '今日' },
@@ -119,10 +183,8 @@ function todayStr() {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 }
-
 function offsetDay(n) {
-  const d = new Date()
-  d.setDate(d.getDate() + n)
+  const d = new Date(); d.setDate(d.getDate() + n)
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 }
 
@@ -131,33 +193,49 @@ const customStart = ref(todayStr())
 const customEnd   = ref(todayStr())
 const typeFilter  = ref('all')
 
+// 發票對照表 { order_id: invoice }
+const invoiceMap = ref({})
+
+async function fetchInvoices(start, end) {
+  const storeId = authStore.store?.id
+  if (!storeId) return
+  const { data } = await supabase
+    .from('invoices')
+    .select('id, order_id, invoice_number, random_code, status, void_reason, total_amount')
+    .eq('store_id', storeId)
+    .gte('invoice_date', start)
+    .lte('invoice_date', end)
+  const map = {}
+  for (const inv of data ?? []) { map[inv.order_id] = inv }
+  invoiceMap.value = map
+}
+
 function applyPreset(key) {
   preset.value = key
   const today = todayStr()
   if (key === 'today')     { customStart.value = today; customEnd.value = today }
   if (key === 'yesterday') { const y = offsetDay(-1); customStart.value = y; customEnd.value = y }
   if (key === 'week') {
-    const d = new Date()
-    const dow = d.getDay() || 7
-    customStart.value = offsetDay(1 - dow)
-    customEnd.value   = today
+    const d = new Date(); const dow = d.getDay() || 7
+    customStart.value = offsetDay(1 - dow); customEnd.value = today
   }
   if (key === 'month') {
     const d = new Date()
     customStart.value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`
-    customEnd.value   = today
+    customEnd.value = today
   }
   reportsStore.fetchOrders(customStart.value, customEnd.value)
+  fetchInvoices(customStart.value, customEnd.value)
 }
 
 function applyCustom() {
   preset.value = ''
   reportsStore.fetchOrders(customStart.value, customEnd.value)
+  fetchInvoices(customStart.value, customEnd.value)
 }
 
 onMounted(() => applyPreset('today'))
 
-/* ── 篩選 ── */
 const filtered = computed(() => {
   if (typeFilter.value === 'all') return reportsStore.orders
   return reportsStore.orders.filter(o => o.orderType === typeFilter.value)
@@ -165,7 +243,6 @@ const filtered = computed(() => {
 
 const sumTotal = computed(() => filtered.value.reduce((s, o) => s + (o.total ?? 0), 0))
 
-/* ── 格式化 ── */
 function fmtNum(n) { return Math.round(n ?? 0).toLocaleString('zh-TW') }
 
 function fmtTime(iso) {
@@ -178,14 +255,14 @@ function fmtTime(iso) {
 }
 
 function formatOrderId(order) {
-  if (order.pickup_number && order.completed_at) {
+  if (order?.pickup_number && order?.completed_at) {
     const d  = new Date(order.completed_at)
     const yy = d.getFullYear()
     const mm = String(d.getMonth() + 1).padStart(2, '0')
     const dd = String(d.getDate()).padStart(2, '0')
     return `${yy}${mm}${dd}${String(order.pickup_number).padStart(2, '0')}`
   }
-  return order.id.slice(0, 8).toUpperCase()
+  return (order?.id ?? '').slice(0, 8).toUpperCase()
 }
 
 function summarizeItems(items) {
@@ -199,178 +276,106 @@ function discountAmount(order) {
   if (order.discount.type === 'percent') return Math.round(base * order.discount.value / 100)
   return Math.min(order.discount.value, base)
 }
+
+// ── 作廢 ──────────────────────────────────────────────────────────────────────
+const voidingInvoice  = ref(null)
+const voidingOrder    = ref(null)
+const voidReason      = ref('')
+const voidReasonOther = ref('')
+const voiding         = ref(false)
+
+function confirmVoid(order, invoice) {
+  voidingOrder.value   = order
+  voidingInvoice.value = invoice
+  voidReason.value     = ''
+  voidReasonOther.value = ''
+}
+
+async function doVoid() {
+  if (!voidReason.value || voiding.value) return
+  voiding.value = true
+  const reason = voidReason.value === '其他' ? voidReasonOther.value : voidReason.value
+
+  const { error } = await supabase
+    .from('invoices')
+    .update({
+      status:      'void',
+      void_reason: reason,
+      void_at:     new Date().toISOString(),
+    })
+    .eq('id', voidingInvoice.value.id)
+
+  if (!error) {
+    // 更新本地 invoiceMap
+    const orderId = voidingInvoice.value.order_id
+    if (invoiceMap.value[orderId]) {
+      invoiceMap.value[orderId].status = 'void'
+    }
+  }
+
+  voiding.value        = false
+  voidingInvoice.value = null
+  voidingOrder.value   = null
+}
 </script>
 
 <style scoped>
-.tr {
-  padding: 16px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  height: 100%;
-}
-
-/* ── 日期列 ── */
-.tr__datebar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  flex-shrink: 0;
-}
-
+.tr { padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; height: 100%; }
+.tr__datebar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex-shrink: 0; }
 .tr__date-btns { display: flex; gap: 4px; }
-
-.tr__date-btn {
-  padding: 5px 14px;
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-  color: var(--color-text-secondary);
-  background: #fff;
-  border: 1px solid var(--color-border-btn);
-  transition: all 0.12s;
-}
-
-.tr__date-btn--active {
-  background: #e8a038;
-  color: #fff;
-  border-color: #e8a038;
-  font-weight: 500;
-}
-
-.tr__date-custom {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--color-text-muted);
-}
-
-.tr__date-input {
-  padding: 4px 8px;
-  border: 1px solid var(--color-border-btn);
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-  color: var(--color-text-primary);
-  background: #fff;
-  outline: none;
-}
-
+.tr__date-btn { padding: 5px 14px; border-radius: var(--radius-sm); font-size: 13px; color: var(--color-text-secondary); background: #fff; border: 1px solid var(--color-border-btn); transition: all 0.12s; }
+.tr__date-btn--active { background: #e8a038; color: #fff; border-color: #e8a038; font-weight: 500; }
+.tr__date-custom { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--color-text-muted); }
+.tr__date-input { padding: 4px 8px; border: 1px solid var(--color-border-btn); border-radius: var(--radius-sm); font-size: 13px; color: var(--color-text-primary); background: #fff; outline: none; }
 .tr__date-input:focus { border-color: #e8a038; }
-
-.tr__type-filter {
-  display: flex;
-  gap: 4px;
-  margin-left: 8px;
-}
-
-.tr__type-btn {
-  padding: 5px 12px;
-  border-radius: var(--radius-sm);
-  font-size: 12.5px;
-  color: var(--color-text-secondary);
-  background: #fff;
-  border: 1px solid var(--color-border-btn);
-  transition: all 0.12s;
-}
-
-.tr__type-btn--active {
-  background: var(--color-text-primary);
-  color: #fff;
-  border-color: var(--color-text-primary);
-  font-weight: 500;
-}
-
+.tr__type-filter { display: flex; gap: 4px; margin-left: 8px; }
+.tr__type-btn { padding: 5px 12px; border-radius: var(--radius-sm); font-size: 12.5px; color: var(--color-text-secondary); background: #fff; border: 1px solid var(--color-border-btn); }
+.tr__type-btn--active { background: var(--color-text-primary); color: #fff; border-color: var(--color-text-primary); font-weight: 500; }
 .tr__loading { font-size: 12px; color: var(--color-text-muted); }
-
-/* ── 摘要 ── */
-.tr__summary {
-  display: flex;
-  gap: 16px;
-  font-size: 13px;
-  color: var(--color-text-secondary);
-  flex-shrink: 0;
-}
-
+.tr__summary { display: flex; gap: 16px; font-size: 13px; color: var(--color-text-secondary); flex-shrink: 0; }
 .tr__summary strong { color: var(--color-text-primary); }
-
-/* ── 表格 ── */
-.tr__table-wrap {
-  flex: 1;
-  overflow: auto;
-  background: #fff;
-  border: 1px solid var(--color-border-card);
-  border-radius: var(--radius-md);
-}
-
-.tr__table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-  min-width: 700px;
-}
-
-.tr__th {
-  text-align: left;
-  padding: 10px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--color-text-muted);
-  background: #faf5ec;
-  border-bottom: 1px solid #ede5d0;
-  white-space: nowrap;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-}
-
-.tr__th--num   { text-align: right; }
-.tr__th--wide  { min-width: 200px; }
-
+.tr__table-wrap { flex: 1; overflow: auto; background: #fff; border: 1px solid var(--color-border-card); border-radius: var(--radius-md); }
+.tr__table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 1100px; }
+.tr__th { text-align: left; padding: 10px 10px; font-size: 11.5px; font-weight: 500; color: var(--color-text-muted); background: #faf5ec; border-bottom: 1px solid #ede5d0; white-space: nowrap; position: sticky; top: 0; z-index: 1; }
+.tr__th--num  { text-align: right; }
+.tr__th--wide { min-width: 180px; }
 .tr__row:hover { background: #faf5ec; }
-
-.tr__td {
-  padding: 9px 12px;
-  border-bottom: 1px solid #f5f0e8;
-  color: var(--color-text-primary);
-  vertical-align: middle;
-}
-
-.tr__td--time    { font-size: 12px; color: var(--color-text-secondary); white-space: nowrap; }
-.tr__td--id      { font-size: 11.5px; color: var(--color-text-secondary); white-space: nowrap; }
-.tr__td--items   { font-size: 12px; color: var(--color-text-secondary); max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tr__td--num     { text-align: right; font-size: 13px; }
+.tr__td { padding: 9px 10px; border-bottom: 1px solid #f5f0e8; color: var(--color-text-primary); vertical-align: middle; white-space: nowrap; }
+.tr__td--time    { font-size: 12px; color: var(--color-text-secondary); }
+.tr__td--id      { font-size: 11.5px; color: var(--color-text-secondary); }
+.tr__td--items   { font-size: 12px; color: var(--color-text-secondary); max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+.tr__td--num     { text-align: right; }
 .tr__td--discount{ color: #c0392b; }
 .tr__td--total   { font-weight: 600; }
-
-.tr__empty {
-  text-align: center;
-  padding: 40px;
-  color: var(--color-text-muted);
-  font-size: 13px;
-}
-
-.tr__type-badge {
-  display: inline-block;
-  padding: 2px 9px;
-  border-radius: 999px;
-  font-size: 11.5px;
-  font-weight: 500;
-}
-
+.tr__td--mono    { font-family: monospace; font-size: 12px; color: var(--color-text-secondary); }
+.tr__td--muted   { color: var(--color-text-muted); }
+.tr__empty { text-align: center; padding: 40px; color: var(--color-text-muted); font-size: 13px; }
+.tr__type-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 500; }
 .tr__type-badge--takeout  { background: #fde8c0; color: #8a6020; }
 .tr__type-badge--dinein   { background: #e8f3e8; color: #3a6a3a; }
 .tr__type-badge--delivery { background: #d0f0e0; color: #1a6035; }
+.tr__pay-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #eef4ff; color: #1a5080; font-weight: 500; }
+.tr__carrier-badge { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: #e8f0fe; color: #1a56b0; font-family: monospace; }
+.tr__taxid-badge  { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: #fde8c0; color: #8a6020; font-family: monospace; }
+.tr__invoice-num  { font-size: 12px; color: #2a6a3a; font-family: monospace; font-weight: 600; }
+.tr__void-badge  { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: #f5e8e8; color: #c0392b; }
+.tr__void-btn    { font-size: 11px; padding: 3px 10px; border-radius: 6px; background: #fde8e8; color: #c0392b; border: 1px solid #f5c6c6; cursor: pointer; }
+.tr__void-btn:hover { background: #fbd5d5; }
+.tr__note { font-size: 11.5px; color: var(--color-text-muted); flex-shrink: 0; }
 
-.tr__pay-badge {
-  font-size: 11px; padding: 2px 8px; border-radius: 999px;
-  background: #eef4ff; color: #1a5080; font-weight: 500;
-}
-.tr__td--muted { color: var(--color-text-muted); }
-
-.tr__note {
-  font-size: 11.5px;
-  color: var(--color-text-muted);
-  flex-shrink: 0;
-}
+/* 作廢 Modal */
+.tr__void-modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+.tr__void-modal { background: #fff; border-radius: 16px; width: 360px; padding: 24px; box-shadow: 0 12px 40px rgba(0,0,0,0.2); }
+.tr__void-modal h3 { font-size: 17px; font-weight: 600; color: #c0392b; margin: 0 0 16px; }
+.tr__void-info { background: #faf5ec; border-radius: 10px; padding: 12px 16px; font-size: 13px; color: var(--color-text-primary); display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.tr__void-reason-wrap { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+.tr__void-reason-wrap label { font-size: 13px; color: var(--color-text-secondary); }
+.tr__void-required { color: #c0392b; }
+.tr__void-select { padding: 10px 12px; border: 1px solid #e8dcc8; border-radius: 8px; font-size: 14px; background: #fff; }
+.tr__void-input  { padding: 10px 12px; border: 1px solid #e8dcc8; border-radius: 8px; font-size: 14px; }
+.tr__void-actions { display: flex; gap: 10px; }
+.tr__void-cancel  { flex: 1; padding: 10px; border-radius: 10px; font-size: 13px; color: #7a6850; background: #f0e8d8; border: 1px solid #c8b89a; cursor: pointer; }
+.tr__void-confirm { flex: 2; padding: 10px; border-radius: 10px; font-size: 14px; font-weight: 600; color: #fff; background: #c0392b; border: none; cursor: pointer; }
+.tr__void-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
+.tr__void-confirm:hover:not(:disabled) { background: #a0301f; }
 </style>

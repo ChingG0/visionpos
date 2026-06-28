@@ -27,21 +27,21 @@ export const useReportsStore = defineStore('reports', () => {
     try {
       const [t, d, di] = await Promise.all([
         supabase.from('takeout_orders')
-          .select('id, pickup_number, customer_name, items, tags, note, surcharge, discount, subtotal, total, completed_at')
+          .select('id, pickup_number, customer_name, items, tags, note, surcharge, discount, subtotal, total, completed_at, payment_method, payment_amount, change_amount, card4, carrier_num, buyer_tax_id')
           .eq('store_id', storeId)
           .eq('status', 'done')
           .gte('completed_at', s).lte('completed_at', e)
           .order('completed_at'),
 
         supabase.from('delivery_orders')
-          .select('id, pickup_number, customer_name, delivery_address, items, note, subtotal, total, completed_at')
+          .select('id, pickup_number, customer_name, delivery_address, items, note, subtotal, total, completed_at, payment_method')
           .eq('store_id', storeId)
           .eq('status', 'done')
           .gte('completed_at', s).lte('completed_at', e)
           .order('completed_at'),
 
         supabase.from('dine_in_orders')
-          .select('id, seat_id, seat_name, items, tags, note, surcharge, discount, subtotal, total, completed_at')
+          .select('id, seat_id, seat_name, items, tags, note, surcharge, discount, subtotal, total, completed_at, payment_method, payment_amount, change_amount, card4, carrier_num, buyer_tax_id')
           .eq('store_id', storeId)
           .eq('status', 'done')
           .gte('completed_at', s).lte('completed_at', e)
@@ -59,7 +59,6 @@ export const useReportsStore = defineStore('reports', () => {
         .sort((a, b) => new Date(a.completed_at) - new Date(b.completed_at))
     } catch (err) {
       error.value = err.message
-      console.error('[reportsStore]', err)
     } finally {
       loading.value = false
     }

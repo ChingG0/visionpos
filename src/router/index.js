@@ -13,6 +13,8 @@ import InventoryView         from '@/views/InventoryView.vue'
 import MemberManagementView  from '@/views/MemberManagementView.vue'
 import DeviceManagementView  from '@/views/DeviceManagementView.vue'
 import StaffManagementView   from '@/views/StaffManagementView.vue'
+import InvoiceSettingsView   from '@/views/InvoiceSettingsView.vue'
+import PaymentSettingsView       from '@/views/PaymentSettingsView.vue'
 
 // cashier 不能進入的頁面
 const MANAGER_ONLY_ROUTES = [
@@ -21,6 +23,7 @@ const MANAGER_ONLY_ROUTES = [
   'MemberManagement',
   'StaffManagement',
   'Reports',
+  'InvoiceSettings'
 ]
 
 const routes = [
@@ -43,6 +46,8 @@ const routes = [
       { path: 'settings/members',   name: 'MemberManagement',  component: MemberManagementView },
       { path: 'settings/device',    name: 'DeviceManagement',  component: DeviceManagementView },
       { path: 'settings/staff',     name: 'StaffManagement',   component: StaffManagementView },
+      { path: 'settings/invoice',   name: 'InvoiceSettings',   component: InvoiceSettingsView },
+      { path: 'settings/payment',   name: 'PaymentSettings',   component: PaymentSettingsView },
     ],
   },
 

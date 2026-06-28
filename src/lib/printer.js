@@ -261,3 +261,68 @@ export function printOrderReceipt(orderData) {
     trader.sendMessage({ request })
   })
 }
+
+export async function printUberReceipt(order) {
+  return new Promise(async (resolve) => {
+    const layout  = getPrinterLayout()
+    const LINE_W  = layout.paperWidth === '80' ? 46 : 30
+    const DOT_W   = layout.paperWidth === '80' ? 576 : 384
+
+    const builder = new StarWebPrintBuilder()
+    let req = ''
+
+    req += builder.createInitializationElement()
+    req += builder.createTextElement({ codepage: 'big5' })
+
+    // ── 訂單編號大標題（反白）────────────────────────────────────────────────
+    const orderId = order.uberOrderId?.slice(-5).toUpperCase() ?? order.id.slice(0, 5).toUpperCase()
+    req += builder.createTextElement({ emphasis: true, invert: true, ...bigText(`  ${orderId}  \n`) })
+
+    // ── 類型和時間 ────────────────────────────────────────────────────────────
+    const now  = new Date()
+    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+    req += builder.createTextElement(bigText(padLine('外送', timeStr, LINE_W) + '\n'))
+
+    // ── 出貨總件數 ────────────────────────────────────────────────────────────
+    const totalQty = (order.items ?? []).reduce((s, i) => s + (i.qty ?? 1), 0)
+    req += builder.createTextElement({ emphasis: true, invert: true, ...bigText(`  出貨商品總件數 ${totalQty}  \n`) })
+    req += builder.createTextElement(bigText('\n'))
+
+    // ── 訂單明細 ─────────────────────────────────────────────────────────────
+    req += builder.createRuledLineElement({ thickness: 'thin', width: DOT_W })
+    req += builder.createTextElement(bigText('Uber Eats  訂單明細\n'))
+    req += builder.createRuledLineElement({ thickness: 'thin', width: DOT_W })
+
+    // 訂單編號、時間
+    req += builder.createTextElement(bigText(`訂單編號: ${orderId}    ${timeStr}\n`))
+    if (order.createdAt) {
+      const created = new Date(order.createdAt)
+      const dateStr = `${created.getFullYear()}-${String(created.getMonth()+1).padStart(2,'0')}-${String(created.getDate()).padStart(2,'0')}T${String(created.getHours()).padStart(2,'0')}:${String(created.getMinutes()).padStart(2,'0')}:00`
+      req += builder.createTextElement(bigText(`訂購時間: ${dateStr}\n`))
+    }
+    req += builder.createRuledLineElement({ thickness: 'thin', width: DOT_W })
+
+    // ── 品項清單 ─────────────────────────────────────────────────────────────
+    req += builder.createTextElement(bigText('Uber Eats  出貨明細\n'))
+    req += builder.createRuledLineElement({ thickness: 'thin', width: DOT_W })
+
+    for (const item of (order.items ?? [])) {
+      const qty  = item.qty ?? 1
+      const name = item.name ?? ''
+      req += builder.createTextElement(bigText(`□ ${qty} x ${name}\n`))
+    }
+
+    req += builder.createRuledLineElement({ thickness: 'thin', width: DOT_W })
+
+    // ── 合計 ─────────────────────────────────────────────────────────────────
+    req += builder.createTextElement({ emphasis: true, ...bigText(`合計: ${(order.total ?? 0).toFixed(0)}\n`) })
+
+    req += builder.createTextElement(bigText('\n'))
+    req += builder.createCutPaperElement({ feed: true })
+
+    const trader = new StarWebPrintTrader({ url: getPrinterUrl(), papertype: 'normal', timeout: 3000 })
+    trader.onReceive = (resp) => resolve({ success: true, response: resp })
+    trader.onError   = (resp) => { resolve({ success: false, error: resp }) }
+    trader.sendMessage({ request: req })
+  })
+}

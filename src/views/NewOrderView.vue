@@ -302,7 +302,7 @@ function handleCharge() {
   showPaymentModal.value = true
 }
 
-async function handlePaymentConfirmed({ method, methodLabel, paymentAmount, changeAmount }) {
+async function handlePaymentConfirmed({ method, methodLabel, paymentAmount, changeAmount, card4, carrierNum, buyerTaxId }) {
   showPaymentModal.value = false
 
   const pickupNumber = await getNextPickupNumber()
@@ -311,6 +311,9 @@ async function handlePaymentConfirmed({ method, methodLabel, paymentAmount, chan
     paymentMethod: methodLabel,
     paymentAmount,
     changeAmount,
+    card4:      card4      ?? null,
+    carrierNum: carrierNum ?? null,
+    buyerTaxId: buyerTaxId ?? null,
   }
 
   const orderPayload = {

@@ -48,7 +48,7 @@ export const useTakeoutStore = defineStore('takeoutOrders', () => {
 
   function reset() { orders.value = []; loaded = false }
 
-  async function addOrder({ items, tags, note, surcharge, discount, subtotal, total, pickupNumber, customerName, customerPhone, paymentMethod, paymentAmount, changeAmount }) {
+  async function addOrder({ items, tags, note, surcharge, discount, subtotal, total, pickupNumber, customerName, customerPhone, paymentMethod, paymentAmount, changeAmount,card4, carrierNum, buyerTaxId }) {
     const storeId = getStoreId()
     const { data, error: err } = await supabase
       .from('takeout_orders')
@@ -61,6 +61,9 @@ export const useTakeoutStore = defineStore('takeoutOrders', () => {
         payment_method: paymentMethod || null,
         payment_amount: paymentAmount ?? null,
         change_amount:  changeAmount  ?? null,
+        card4:        card4      ?? null,
+        carrier_num:  carrierNum ?? null,
+        buyer_tax_id: buyerTaxId ?? null,
         status: 'pending',
       })
       .select().single()
