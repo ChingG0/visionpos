@@ -291,31 +291,24 @@ function confirmVoid(order, invoice) {
   voidReasonOther.value = ''
 }
 
+import { useInvoice } from '@/composables/useInvoice.js'
+const { voidInvoice } = useInvoice()
+
 async function doVoid() {
   if (!voidReason.value || voiding.value) return
   voiding.value = true
   const reason = voidReason.value === '其他' ? voidReasonOther.value : voidReason.value
 
-  const { error } = await supabase
-    .from('invoices')
-    .update({
-      status:      'void',
-      void_reason: reason,
-      void_at:     new Date().toISOString(),
-    })
-    .eq('id', voidingInvoice.value.id)
-
-  if (!error) {
-    // 更新本地 invoiceMap
+  const result = await voidInvoice(voidingInvoice.value.id, reason)
+  if (result.ok) {
     const orderId = voidingInvoice.value.order_id
-    if (invoiceMap.value[orderId]) {
-      invoiceMap.value[orderId].status = 'void'
-    }
+    if (invoiceMap.value[orderId]) invoiceMap.value[orderId].status = 'void'
+  } else {
+    alert(result.error)
   }
-
-  voiding.value        = false
+  voiding.value = false
   voidingInvoice.value = null
-  voidingOrder.value   = null
+  voidingOrder.value = null
 }
 </script>
 

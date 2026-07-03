@@ -326,3 +326,143 @@ export async function printUberReceipt(order) {
     trader.sendMessage({ request: req })
   })
 }
+// =============================================================================
+// 加到 printer.js 最後面 — 電子發票證明聯列印（財政部規格格式）
+// 需要先安裝 QR 產生：檔案頂部不用加 import，用內建 canvas 畫 QR
+// npm install qrcode  → 頂部加 import QRCode from 'qrcode'
+// =============================================================================
+
+/**
+ * 民國年期別：2026-07 → 115年07-08月
+ */
+function invoicePeriodLabel(dateStr) {
+  const d = new Date(dateStr)
+  const rocYear = d.getFullYear() - 1911
+  const month = d.getMonth() + 1
+  const startM = month % 2 === 0 ? month - 1 : month
+  const endM   = startM + 1
+  return `${rocYear}年${String(startM).padStart(2, '0')}-${String(endM).padStart(2, '0')}月`
+}
+
+/**
+ * 財政部左側 QRCode 內容
+ * 格式：發票號碼(10) + 民國日期(7) + 隨機碼(4) + 銷售額hex(8) + 總額hex(8)
+ *      + 買方統編(8) + 賣方統編(8) + 加密驗證(24) + ":" 後接明細
+ * 沒有財政部 AES key 時，加密段用 24 個 0 佔位（測試列印用）
+ */
+function buildInvoiceQrLeft(inv) {
+  const d = new Date(inv.invoiceDate ?? Date.now())
+  const rocDate = `${d.getFullYear() - 1911}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`
+  const salesHex = Math.round(inv.salesAmount ?? 0).toString(16).padStart(8, '0')
+  const totalHex = Math.round(inv.totalAmount ?? 0).toString(16).padStart(8, '0')
+  const buyer  = (inv.buyerTaxId ?? '00000000').padStart(8, '0')
+  const seller = (inv.sellerTaxId ?? '00000000').padStart(8, '0')
+  const encrypt = '0'.repeat(24)  // 正式環境需用財政部 QRCode AES key 加密
+  const itemCount = (inv.items ?? []).length
+  const head = `${inv.invoiceNumber}${rocDate}${inv.randomCode}${salesHex}${totalHex}${buyer}${seller}${encrypt}`
+  const items = (inv.items ?? []).slice(0, 2)
+    .map(i => `${i.name}:${i.qty}:${i.price}`).join(':')
+  return `${head}:**********:${itemCount}:${itemCount}:1:${items}`
+}
+
+function buildInvoiceQrRight(inv) {
+  const items = (inv.items ?? []).slice(2)
+    .map(i => `${i.name}:${i.qty}:${i.price}`).join(':')
+  return `**${items || ' '}`
+}
+
+/**
+ * 列印電子發票證明聯
+ * inv: { invoiceNumber, randomCode, invoiceDate, salesAmount, taxAmount,
+ *        totalAmount, sellerTaxId, buyerTaxId, companyName, items }
+ */
+export async function printInvoiceReceipt(inv) {
+  return new Promise(async (resolve) => {
+    const layout = getPrinterLayout()
+    const LINE_W = layout.paperWidth === '80' ? 46 : 30
+    const DOT_W  = layout.paperWidth === '80' ? 576 : 384
+
+    const builder = new StarWebPrintBuilder()
+    let req = ''
+
+    req += builder.createInitializationElement()
+    req += builder.createTextElement({ codepage: 'big5' })
+    req += builder.createAlignmentElement({ position: 'center' })
+
+    // ── 店名（大字）──────────────────────────────────────────────────────────
+    const storeName = inv.companyName || layout.storeName || 'VisionPOS'
+    req += builder.createTextElement({ emphasis: true, width: 2, height: 2, ...bigText(storeName + '\n') })
+
+    // ── 電子發票證明聯 ────────────────────────────────────────────────────────
+    req += builder.createTextElement({ emphasis: true, width: 2, height: 2, ...bigText('電子發票證明聯\n') })
+
+    // ── 期別 + 發票號碼（大字）──────────────────────────────────────────────
+    req += builder.createTextElement({ emphasis: true, width: 2, height: 2, ...bigText(invoicePeriodLabel(inv.invoiceDate) + '\n') })
+    const invNo = `${inv.invoiceNumber.slice(0, 2)}-${inv.invoiceNumber.slice(2)}`
+    req += builder.createTextElement({ emphasis: true, width: 2, height: 2, ...bigText(invNo + '\n') })
+
+    req += builder.createAlignmentElement({ position: 'left' })
+
+    // ── 日期時間、隨機碼、總計、賣方 ─────────────────────────────────────────
+    const d = new Date(inv.invoiceDate ?? Date.now())
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`
+    req += builder.createTextElement(bigText(dateStr + '\n'))
+    req += builder.createTextElement(bigText(`隨機碼：${inv.randomCode}  總計：${Math.round(inv.totalAmount)}\n`))
+    req += builder.createTextElement(bigText(`賣方${inv.sellerTaxId ?? ''}${inv.buyerTaxId ? `  買方${inv.buyerTaxId}` : ''}\n`))
+    req += builder.createTextElement(bigText('\n'))
+
+    // ── 雙 QRCode ────────────────────────────────────────────────────────────
+    try {
+      const QRCode = (await import('qrcode')).default
+      const qrOpts = { width: 150, margin: 0 }
+      const [leftUrl, rightUrl] = await Promise.all([
+        QRCode.toDataURL(buildInvoiceQrLeft(inv),  qrOpts),
+        QRCode.toDataURL(buildInvoiceQrRight(inv), qrOpts),
+      ])
+
+      // 兩個 QR 並排畫在同一個 canvas
+      const size = 150
+      const gap  = 40
+      const canvas = document.createElement('canvas')
+      canvas.width  = DOT_W
+      canvas.height = size
+      const ctx = canvas.getContext('2d')
+      ctx.fillStyle = '#fff'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+      const [imgL, imgR] = await Promise.all([leftUrl, rightUrl].map(u => new Promise((res, rej) => {
+        const img = new Image()
+        img.onload = () => res(img); img.onerror = rej; img.src = u
+      })))
+
+      const startX = Math.floor((DOT_W - size * 2 - gap) / 2)
+      ctx.drawImage(imgL, startX, 0, size, size)
+      ctx.drawImage(imgR, startX + size + gap, 0, size, size)
+
+      req += builder.createBitImageElement({ context: ctx, x: 0, y: 0, width: canvas.width, height: canvas.height })
+    } catch (e) {
+      console.warn('[printer] QRCode 產生失敗，略過', e)
+    }
+
+    req += builder.createTextElement(bigText('\n'))
+    req += builder.createRuledLineElement({ thickness: 'thin', width: DOT_W })
+
+    // ── 品項明細 ──────────────────────────────────────────────────────────────
+    for (const item of (inv.items ?? [])) {
+      const line = padLine(`${item.name} x${item.qty}`, `$${(item.price * item.qty).toFixed(0)}`, LINE_W)
+      req += builder.createTextElement(bigText(line + '\n'))
+    }
+    req += builder.createRuledLineElement({ thickness: 'thin', width: DOT_W })
+    req += builder.createTextElement(bigText(padLine('銷售額(未稅)', `$${inv.salesAmount}`, LINE_W) + '\n'))
+    req += builder.createTextElement(bigText(padLine('稅額',        `$${inv.taxAmount}`,  LINE_W) + '\n'))
+    req += builder.createTextElement({ emphasis: true, ...bigText(padLine('總計', `$${Math.round(inv.totalAmount)}`, LINE_W) + '\n') })
+
+    req += builder.createTextElement(bigText('\n'))
+    req += builder.createCutPaperElement({ feed: true })
+
+    const trader = new StarWebPrintTrader({ url: getPrinterUrl(), papertype: 'normal', timeout: 3000 })
+    trader.onReceive = (resp) => resolve({ success: true, response: resp })
+    trader.onError   = (resp) => resolve({ success: false, error: resp })
+    trader.sendMessage({ request: req })
+  })
+}

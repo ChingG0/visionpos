@@ -328,23 +328,25 @@ async function handlePaymentConfirmed({ method, methodLabel, paymentAmount, chan
     ...paymentFields,
   }
 
+  let savedOrder = null
+
   if (orderType.value === 'takeout') {
-    const order = await takeoutStore.addOrder({
+    savedOrder = await takeoutStore.addOrder({
       ...orderPayload,
       customerName:  customerName.value,
       customerPhone: customerPhone.value,
     })
-    if (order?.id) inventoryStore.deductByOrder(order.id, cartItems.value)
+    if (savedOrder?.id) inventoryStore.deductByOrder(savedOrder.id, cartItems.value)
   } else {
     const isDefer = (method === 'defer')
     await (isDefer ? markTableOrdered : markTablePaid)(selectedTable.value.id)
 
-    const order = await dineInStore.addOrder({
+    savedOrder = await dineInStore.addOrder({
       seatId:   selectedTable.value.id,
       seatName: selectedTable.value.name,
       ...orderPayload,
     })
-    if (order?.id) inventoryStore.deductByOrder(order.id, cartItems.value)
+    if (savedOrder?.id) inventoryStore.deductByOrder(savedOrder.id, cartItems.value)
   }
 
   printOrderReceipt({
@@ -359,6 +361,22 @@ async function handlePaymentConfirmed({ method, methodLabel, paymentAmount, chan
     discountAmount:  discountAmount.value,
     total:     total.value,
   })
+
+  // 電子發票（有啟用才開，稍後付款不開票）
+  if (method !== 'defer' && savedOrder?.id) {
+    const { useInvoice } = await import('@/composables/useInvoice.js')
+    const { isInvoiceEnabled, issueInvoice } = useInvoice()
+    if (await isInvoiceEnabled()) {
+      issueInvoice({
+        id:        savedOrder.id,
+        orderType: orderType.value === 'takeout' ? 'takeout' : 'dine_in',
+        items:     cartItems.value,
+        total:     total.value,
+        buyerTaxId,
+        carrierNum,
+      })
+    }
+  }
 
   clearCart()
 }
