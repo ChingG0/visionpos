@@ -155,10 +155,11 @@
       </div>
     </div>
 
-    <!-- ── 單張結帳 PaymentModal ── -->
+    <!-- ── 單張結帳 PaymentModal（這裡結的本來就是「稍後付款」訂單，不該再選一次稍後付款）── -->
     <PaymentModal
       v-if="showPaymentModal"
       :total="currentOrder?.total ?? 0"
+      :allow-defer="false"
       @close="showPaymentModal = false"
       @paid="handlePaymentAndComplete"
     />
@@ -254,18 +255,24 @@ async function completeCurrent() {
 /* ── 稍後付款 → 開 PaymentModal → 結帳 ── */
 const showPaymentModal = ref(false)
 
-async function handlePaymentAndComplete({ methodLabel, paymentAmount, changeAmount }) {
+async function handlePaymentAndComplete({ methodLabel, paymentAmount, changeAmount, carrierNum, buyerTaxId }) {
+  // 重號檢核（項次 1）：防連點，處理中直接擋掉第二次觸發
+  if (completing.value) return
   showPaymentModal.value = false
   if (!currentOrder.value) return
   completing.value = true
 
+  const orderId = currentOrder.value.id
+  const items   = currentOrder.value.items
+  const total   = currentOrder.value.total
+
   // ① 只寫入付款資訊，不結束訂單
   await supabase.from('dine_in_orders').update({
     payment_method: methodLabel, payment_amount: paymentAmount, change_amount: changeAmount,
-  }).eq('id', currentOrder.value.id)
+  }).eq('id', orderId)
 
   // ② 同步更新 dineInStore 快取（關掉重開 modal 也能讀到正確狀態）
-  dineInStore.markOrdersPaid(props.seat.id, [currentOrder.value.id], methodLabel, paymentAmount, changeAmount)
+  dineInStore.markOrdersPaid(props.seat.id, [orderId], methodLabel, paymentAmount, changeAmount)
 
   // ③ 更新 local 訂單，讓畫面立即反應
   orders.value = [...dineInStore.getOrdersBySeatId(props.seat.id)]
@@ -276,7 +283,35 @@ async function handlePaymentAndComplete({ methodLabel, paymentAmount, changeAmou
   // ⑤ 通知 DineInView 刷新 FloorMap
   emit('payment-done', props.seat.id)
 
+  // ⑥ 電子發票（稍後付款訂單在這個「真正付款」的時間點才開票，有啟用才開）
+  await issueInvoiceIfEnabled({ orderId, items, total, carrierNum, buyerTaxId })
+
   completing.value = false
+}
+
+/* ── 稍後付款訂單真正結帳時開立電子發票（單張 / 併單共用）──────────────────────
+   NewOrderView 的即時付款流程在訂單建立當下就開票；「稍後付款」訂單當初建立時
+   刻意不開票（金額/品項可能還會變），所以要在這裡、真正收到錢的這一刻才開票，
+   並讓店員在這個 PaymentModal 上重新輸入統編/載具（跟 NewOrderView 用同一套
+   useInvoice.issueInvoice，同樣是 fire-and-forget，不阻擋結帳流程）。 */
+async function issueInvoiceIfEnabled({ orderId, items, total, carrierNum, buyerTaxId }) {
+  if (!orderId) return
+  try {
+    const { useInvoice } = await import('@/composables/useInvoice.js')
+    const { isInvoiceEnabled, issueInvoice } = useInvoice()
+    if (!(await isInvoiceEnabled())) return
+    const res = await issueInvoice({
+      id:        orderId,
+      orderType: 'dine_in',
+      items,
+      total,
+      buyerTaxId,
+      carrierNum,
+    })
+    if (res?.warning) console.warn('[invoice]', res.warning)
+  } catch (e) {
+    console.error('[invoice] 稍後付款結帳開票失敗', e)
+  }
 }
 
 /* ── 併單 ── */
@@ -306,10 +341,21 @@ function toggleMerge(orderId) {
   mergeSet.value = s
 }
 
-async function handleMergePaymentAndComplete({ methodLabel, paymentAmount, changeAmount }) {
+async function handleMergePaymentAndComplete({ methodLabel, paymentAmount, changeAmount, carrierNum, buyerTaxId }) {
+  // 重號檢核（項次 1）：防連點，處理中直接擋掉第二次觸發
+  if (completing.value) return
   showMergePayment.value = false
   completing.value = true
   const ids = [...mergeSet.value]
+
+  // 併單只開「一張」發票，用第一筆訂單的 id 當作發票對應的 order_id（後端用它做重號防護的
+  // 冪等 key），品項則合併所有被併訂單的明細，總額用併單當下的 mergeTotal（cancelMerge()
+  // 之後 mergeSet 會被清空，mergeTotal 這個 computed 也會跟著變回 0，所以要在這裡先存好）。
+  const mergedOrderId = ids[0]
+  const mergedItems = orders.value
+    .filter(o => ids.includes(o.id))
+    .flatMap(o => o.items ?? [])
+  const mergedTotal = mergeTotal.value
 
   // ① 只寫入付款資訊，不完成訂單
   await Promise.all(ids.map(id =>
@@ -329,6 +375,9 @@ async function handleMergePaymentAndComplete({ methodLabel, paymentAmount, chang
   // ④ 座位圖橘色 → 綠色
   await markTablePaid(props.seat.id)
   emit('payment-done', props.seat.id)
+
+  // ⑤ 電子發票：併單只開一張，金額/品項用合併後的資料
+  await issueInvoiceIfEnabled({ orderId: mergedOrderId, items: mergedItems, total: mergedTotal, carrierNum, buyerTaxId })
 
   completing.value = false
 }

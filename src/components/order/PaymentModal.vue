@@ -26,8 +26,10 @@
                   v-if="carrierMode === 'carrier'"
                   v-model="carrierNum"
                   class="pm-carrier-input"
+                  :class="{ 'pm-carrier-input--invalid': carrierNum && !carrierValid }"
                   placeholder="/XXXXXXX"
                   maxlength="20"
+                  @input="onCarrierInput"
                 />
                 <input
                   v-if="carrierMode === 'taxid'"
@@ -36,7 +38,11 @@
                   placeholder="買方統編"
                   maxlength="8"
                   type="number"
+                  @input="onTaxIdInput"
                 />
+              </div>
+              <div v-if="carrierMode === 'carrier' && carrierNum && !carrierValid" class="pm-carrier-hint">
+                格式錯誤：手機條碼須為「/」開頭共8碼，或自然人憑證為2位大寫字母+14位數字
               </div>
             </template>
             <div class="pm-total-label">總計</div>
@@ -154,6 +160,21 @@
           </div>
         </template>
 
+        <!-- ── 人工輸入條碼/統編二次確認（檢測表項次7-(3)）──────────────────────────
+             掃描槍輸入是瞬間完成（同一批 input 事件時間差極小），會直接放行；
+             只有手動一個字一個字打的才會擋下來，要求店員再看一次確認無誤才送出。 -->
+        <div v-if="pendingConfirmKind" class="pm-recheck-overlay">
+          <div class="pm-recheck-box">
+            <p class="pm-recheck-title">請再次確認{{ pendingConfirmKind === 'carrier' ? '手機條碼/自然人憑證' : '買方統編' }}</p>
+            <p class="pm-recheck-value">{{ pendingConfirmKind === 'carrier' ? carrierNum : buyerTaxId }}</p>
+            <p class="pm-recheck-hint">手動輸入的內容，請店員與客戶再確認一次是否正確</p>
+            <div class="pm-recheck-actions">
+              <button class="pm-recheck-btn pm-recheck-btn--edit" @click="cancelRecheck">重新輸入</button>
+              <button class="pm-recheck-btn pm-recheck-btn--ok" @click="confirmRecheck">確認正確，送出</button>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
   </Teleport>
@@ -228,6 +249,68 @@ const carrierMode = ref('')
 const carrierNum  = ref('')
 const buyerTaxId  = ref('')
 
+// 財政部共通性載具格式規範：
+// 手機條碼：/ 起始，共8碼，除首碼外只允許 0-9A-Z+-. 共39個合法字元
+// 自然人憑證：2位大寫英文字母 + 14位數字
+const MOBILE_BARCODE_RE = /^\/[0-9A-Z+\-.]{7}$/
+const NATID_CERT_RE     = /^[A-Z]{2}\d{14}$/
+const carrierValid = computed(() => {
+  if (!carrierNum.value) return true
+  return MOBILE_BARCODE_RE.test(carrierNum.value) || NATID_CERT_RE.test(carrierNum.value)
+})
+
+// ── 人工輸入二次確認（檢測表項次7-(3)：人工輸入應設計多次確認機制降低錯誤）─────────
+// 判斷依據：掃描槍是瞬間把整串字元灌進輸入框，前後兩次 input 事件時間差極小；
+// 人工一個字一個字打字，時間差明顯較大。用「第一個字 → 最後一個字」總耗時判斷，
+// 低於門檻視為掃描（已經是機器讀取，不需要再人工二次確認），否則視為人工輸入，
+// 送出前要求店員再看一次畫面上大字顯示的內容並明確按下確認。
+const SCAN_MAX_DURATION_MS = 250
+let carrierInputStart = 0
+let taxIdInputStart   = 0
+const carrierWasManual = ref(false)
+const taxIdWasManual   = ref(false)
+
+function onCarrierInput() {
+  carrierNum.value = carrierNum.value.toUpperCase()
+  const now = Date.now()
+  if (!carrierNum.value) { carrierInputStart = 0; carrierWasManual.value = false; return }
+  if (!carrierInputStart) carrierInputStart = now
+  carrierWasManual.value = (now - carrierInputStart) > SCAN_MAX_DURATION_MS
+}
+
+function onTaxIdInput() {
+  const now = Date.now()
+  if (!buyerTaxId.value) { taxIdInputStart = 0; taxIdWasManual.value = false; return }
+  if (!taxIdInputStart) taxIdInputStart = now
+  taxIdWasManual.value = (now - taxIdInputStart) > SCAN_MAX_DURATION_MS
+}
+
+// pendingConfirmKind: null（不需要二次確認）| 'carrier' | 'taxid'
+const pendingConfirmKind = ref(null)
+const carrierRechecked   = ref(false)
+const taxIdRechecked     = ref(false)
+let resumeAfterRecheck = null
+
+function needsRecheck() {
+  if (carrierMode.value === 'carrier' && carrierNum.value && carrierWasManual.value && !carrierRechecked.value) return 'carrier'
+  if (carrierMode.value === 'taxid'   && buyerTaxId.value && taxIdWasManual.value && !taxIdRechecked.value)     return 'taxid'
+  return null
+}
+
+function cancelRecheck() {
+  pendingConfirmKind.value = null
+  resumeAfterRecheck = null
+}
+
+function confirmRecheck() {
+  if (pendingConfirmKind.value === 'carrier') carrierRechecked.value = true
+  if (pendingConfirmKind.value === 'taxid')   taxIdRechecked.value   = true
+  pendingConfirmKind.value = null
+  const resume = resumeAfterRecheck
+  resumeAfterRecheck = null
+  if (resume) resume()
+}
+
 const quickAmounts = computed(() => {
   const t = props.total
   const options = new Set()
@@ -251,6 +334,12 @@ function switchCarrierMode(mode) {
   carrierMode.value = carrierMode.value === mode ? '' : mode
   carrierNum.value  = ''
   buyerTaxId.value  = ''
+  carrierInputStart = 0
+  taxIdInputStart   = 0
+  carrierWasManual.value = false
+  taxIdWasManual.value   = false
+  carrierRechecked.value = false
+  taxIdRechecked.value   = false
 }
 
 function setQuick(amount) { enteredStr.value = String(Math.round(amount)) }
@@ -273,6 +362,19 @@ function confirmCard() {
 }
 
 function confirm() {
+  if (carrierMode.value === 'carrier' && carrierNum.value && !carrierValid.value) return
+
+  // 人工輸入的手機條碼/自然人憑證/統編，送出前先擋下來要求店員二次確認（項次7-(3)）
+  const kind = needsRecheck()
+  if (kind) {
+    pendingConfirmKind.value = kind
+    resumeAfterRecheck = () => doEmitPaid()
+    return
+  }
+  doEmitPaid()
+}
+
+function doEmitPaid() {
   const amount = enteredAmount.value || props.total
   const chg    = method.value === 'cash' ? Math.max(0, amount - props.total) : 0
   emit('paid', {
@@ -289,17 +391,19 @@ function confirm() {
 
 <style scoped>
 .pm-backdrop { position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; }
-.pm-box { background: #1a1410; color: #fff; border-radius: 20px; width: 520px; max-height: 95vh; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+.pm-box { position: relative; background: #1a1410; color: #fff; border-radius: 20px; width: 520px; max-height: 95vh; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
 .pm-header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.08); }
 .pm-back { font-size: 13px; color: #aaa; padding: 6px 10px; border-radius: 8px; background: rgba(255,255,255,0.08); }
 .pm-back:hover { background: rgba(255,255,255,0.15); }
-.pm-header-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.pm-header-right { margin-left: auto; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
 .pm-carrier-wrap { display: flex; align-items: center; gap: 6px; }
 .pm-carrier-tabs { display: flex; border-radius: 6px; overflow: hidden; border: 1px solid rgba(255,255,255,0.15); }
 .pm-carrier-tab { padding: 5px 10px; font-size: 11px; color: #888; background: rgba(255,255,255,0.05); }
 .pm-carrier-tab--active { background: #e8a038; color: #fff; font-weight: 600; }
 .pm-carrier-input { width: 130px; padding: 5px 10px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; color: #fff; font-size: 13px; }
 .pm-carrier-input:focus { outline: none; border-color: #e8a038; }
+.pm-carrier-input--invalid { border-color: #e06060; }
+.pm-carrier-hint { width: 100%; font-size: 11px; color: #e06060; text-align: right; }
 .pm-total-label { font-size: 13px; color: #888; }
 .pm-total { font-size: 26px; font-weight: 700; color: #fff; }
 .pm-tabs { display: flex; padding: 10px 12px 0; gap: 6px; }
@@ -357,4 +461,27 @@ function confirm() {
 .pm-confirm--cash:hover:not(:disabled) { background: #c88020; }
 .pm-confirm--defer { background: #5a4a3a; }
 .pm-confirm--defer:hover { background: #4a3a2a; }
+
+.pm-recheck-overlay {
+  position: absolute; inset: 0; z-index: 10;
+  background: rgba(10, 8, 6, 0.92);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+.pm-recheck-box {
+  width: 100%; max-width: 380px;
+  background: #241c14; border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 16px; padding: 28px 24px;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  text-align: center;
+}
+.pm-recheck-title { font-size: 14px; color: #ccc; font-weight: 600; }
+.pm-recheck-value { font-size: 30px; font-weight: 700; color: #e8a038; letter-spacing: 1px; word-break: break-all; }
+.pm-recheck-hint { font-size: 12px; color: #999; margin-bottom: 8px; }
+.pm-recheck-actions { display: flex; gap: 10px; width: 100%; }
+.pm-recheck-btn { flex: 1; padding: 14px; border-radius: 10px; font-size: 14px; font-weight: 700; }
+.pm-recheck-btn--edit { background: rgba(255,255,255,0.1); color: #ccc; }
+.pm-recheck-btn--edit:hover { background: rgba(255,255,255,0.18); }
+.pm-recheck-btn--ok { background: #3a7a3a; color: #fff; }
+.pm-recheck-btn--ok:hover { background: #2a6a2a; }
 </style>

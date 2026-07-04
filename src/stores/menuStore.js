@@ -24,6 +24,7 @@ export const useMenuStore = defineStore('menu', () => {
       id: row.id, code: row.code, categoryId: row.category_id,
       name: row.name, cost: row.cost, price: row.price,
       icon: row.icon, status: row.status, sortOrder: row.sort_order,
+      taxType: row.tax_type ?? 'taxable',
     }
   }
 
@@ -32,6 +33,7 @@ export const useMenuStore = defineStore('menu', () => {
       id: item.id, code: item.code, category_id: item.categoryId,
       name: item.name, cost: item.cost, price: item.price,
       icon: item.icon, status: item.status, sort_order: item.sortOrder,
+      tax_type: item.taxType ?? 'taxable',
       store_id: getStoreId(),
     }
   }
@@ -79,7 +81,7 @@ export const useMenuStore = defineStore('menu', () => {
     return `${prefix}${String(maxNum + 1).padStart(2, '0')}`
   }
 
-  async function addItem({ name, categoryId, cost, price, icon }) {
+  async function addItem({ name, categoryId, cost, price, icon, taxType }) {
     const maxSort = items.value
       .filter(i => i.categoryId === categoryId)
       .reduce((m, i) => Math.max(m, i.sortOrder ?? -1), -1)
@@ -87,6 +89,7 @@ export const useMenuStore = defineStore('menu', () => {
       id: `i${Date.now()}`, code: nextCode(categoryId), categoryId,
       name, cost: cost ?? 0, price: price ?? 0, icon: icon || '🍽️',
       status: true, sortOrder: maxSort + 1,
+      taxType: taxType ?? 'taxable',
     }
     items.value.push(newItem)
     await persistItem(newItem)

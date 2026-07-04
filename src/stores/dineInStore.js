@@ -18,6 +18,7 @@ export const useDineInStore = defineStore('dineInOrders', () => {
       subtotal: row.subtotal, total: row.total, status: row.status,
       paymentMethod: row.payment_method, paymentAmount: row.payment_amount,
       changeAmount: row.change_amount, createdAt: row.created_at,
+      card4: row.card4, carrierNum: row.carrier_num, buyerTaxId: row.buyer_tax_id,
     }
   }
 
@@ -100,7 +101,7 @@ export const useDineInStore = defineStore('dineInOrders', () => {
     if (channel) { supabase.removeChannel(channel); channel = null }
   }
 
-  async function addOrder({ seatId, seatName, items, tags, note, surcharge, discount, subtotal, total, paymentMethod, paymentAmount, changeAmount }) {
+  async function addOrder({ seatId, seatName, items, tags, note, surcharge, discount, subtotal, total, paymentMethod, paymentAmount, changeAmount, card4, carrierNum, buyerTaxId }) {
     const storeId = getStoreId()
     const { data, error } = await supabase
       .from('dine_in_orders')
@@ -111,6 +112,9 @@ export const useDineInStore = defineStore('dineInOrders', () => {
         payment_method: paymentMethod || null,
         payment_amount: paymentAmount ?? null,
         change_amount:  changeAmount  ?? null,
+        card4:          card4      ?? null,
+        carrier_num:    carrierNum ?? null,
+        buyer_tax_id:   buyerTaxId ?? null,
         status: 'active',
       })
       .select().single()

@@ -75,7 +75,11 @@ export function useInvoice() {
         })
       }
 
-      return { ok: true, invoice: result.invoice }
+      // result.invoice.qrCodeReady === false 代表綠界尚未設定密碼種子/POS 版型權限，
+      // 條碼區塊沒印出來；這裡把 warning 往上傳，方便呼叫端（例如結帳流程）記錄或提醒。
+      if (result.warning) console.warn('[invoice]', result.warning)
+
+      return { ok: true, invoice: result.invoice, warning: result.warning }
     } catch (e) {
       console.error('[invoice] 開票異常', e)
       return { ok: false, error: '開票失敗，請至交易紀錄補開' }
@@ -91,5 +95,15 @@ export function useInvoice() {
       : { ok: false, error: result.error ?? '作廢失敗' }
   }
 
-  return { isInvoiceEnabled, issueInvoice, voidInvoice }
+  /** 查詢綠界字軌剩餘量並寫回 invoice_settings.remain_count */
+  async function syncRemainCount() {
+    const storeId = getStoreId()
+    if (!storeId) return { ok: false, error: '未登入' }
+    const result = await callEdge({ action: 'sync_remain_count', storeId })
+    return result.ok === true
+      ? { ok: true, remainCount: result.remainCount }
+      : { ok: false, error: result.error ?? '查詢失敗' }
+  }
+
+  return { isInvoiceEnabled, issueInvoice, voidInvoice, syncRemainCount }
 }

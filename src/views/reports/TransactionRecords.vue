@@ -50,14 +50,15 @@
             <th class="tr__th">發票號碼</th>
             <th class="tr__th">隨機碼</th>
             <th class="tr__th">作廢</th>
+            <th class="tr__th">補印</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="reportsStore.loading">
-            <td colspan="14" class="tr__empty">載入中...</td>
+            <td colspan="15" class="tr__empty">載入中...</td>
           </tr>
           <tr v-else-if="filtered.length === 0">
-            <td colspan="14" class="tr__empty">此期間無交易紀錄</td>
+            <td colspan="15" class="tr__empty">此期間無交易紀錄</td>
           </tr>
           <template v-else>
             <tr v-for="order in filtered" :key="order.id" class="tr__row">
@@ -113,6 +114,18 @@
                 </template>
                 <span v-else class="tr__td--muted">—</span>
               </td>
+              <!-- 補印 -->
+              <td class="tr__td">
+                <button
+                  v-if="invoiceMap[order.id] && invoiceMap[order.id].status !== 'void'"
+                  class="tr__reprint-btn"
+                  :disabled="reprintingId === order.id"
+                  @click="handleReprint(order, invoiceMap[order.id])"
+                >
+                  {{ reprintingId === order.id ? '列印中...' : '補印' }}
+                </button>
+                <span v-else class="tr__td--muted">—</span>
+              </td>
             </tr>
           </template>
         </tbody>
@@ -161,6 +174,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useReportsStore } from '@/stores/reportsStore.js'
 import { supabase } from '@/lib/supabase.js'
 import { useAuthStore } from '@/stores/authStore.js'
+import { printInvoiceReceipt } from '@/lib/printer.js'
 
 const reportsStore = useReportsStore()
 const authStore    = useAuthStore()
@@ -201,7 +215,7 @@ async function fetchInvoices(start, end) {
   if (!storeId) return
   const { data } = await supabase
     .from('invoices')
-    .select('id, order_id, invoice_number, random_code, status, void_reason, total_amount')
+    .select('id, order_id, invoice_number, random_code, status, void_reason, total_amount, sales_amount, tax_amount, invoice_date, buyer_tax_id, seller_tax_id, company_name, items, pos_bar_code, qr_code_left, qr_code_right, qr_code_ready')
     .eq('store_id', storeId)
     .gte('invoice_date', start)
     .lte('invoice_date', end)
@@ -275,6 +289,34 @@ function discountAmount(order) {
   const base = order.subtotal ?? 0
   if (order.discount.type === 'percent') return Math.round(base * order.discount.value / 100)
   return Math.min(order.discount.value, base)
+}
+
+// ── 補印 ──────────────────────────────────────────────────────────────────────
+const reprintingId = ref(null)
+
+async function handleReprint(order, invoice) {
+  if (reprintingId.value) return
+  reprintingId.value = order.id
+
+  const result = await printInvoiceReceipt({
+    invoiceNumber: invoice.invoice_number,
+    randomCode:    invoice.random_code,
+    invoiceDate:   invoice.invoice_date,
+    salesAmount:   invoice.sales_amount,
+    taxAmount:     invoice.tax_amount,
+    totalAmount:   invoice.total_amount,
+    sellerTaxId:   invoice.seller_tax_id,
+    buyerTaxId:    invoice.buyer_tax_id,
+    companyName:   invoice.company_name,
+    items:         invoice.items,
+    posBarCode:    invoice.pos_bar_code,
+    qrCodeLeft:    invoice.qr_code_left,
+    qrCodeRight:   invoice.qr_code_right,
+    qrCodeReady:   invoice.qr_code_ready,
+  })
+
+  if (!result.success) alert('補印失敗，請確認出單機連線。')
+  reprintingId.value = null
 }
 
 // ── 作廢 ──────────────────────────────────────────────────────────────────────
@@ -353,6 +395,9 @@ async function doVoid() {
 .tr__invoice-num  { font-size: 12px; color: #2a6a3a; font-family: monospace; font-weight: 600; }
 .tr__void-badge  { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: #f5e8e8; color: #c0392b; }
 .tr__void-btn    { font-size: 11px; padding: 3px 10px; border-radius: 6px; background: #fde8e8; color: #c0392b; border: 1px solid #f5c6c6; cursor: pointer; }
+.tr__reprint-btn { font-size: 11px; padding: 3px 10px; border-radius: 6px; background: #eef4ff; color: #1a5080; border: 1px solid #c6d6f5; cursor: pointer; }
+.tr__reprint-btn:hover:not(:disabled) { background: #dce8fb; }
+.tr__reprint-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .tr__void-btn:hover { background: #fbd5d5; }
 .tr__note { font-size: 11.5px; color: var(--color-text-muted); flex-shrink: 0; }
 

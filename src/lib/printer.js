@@ -100,6 +100,17 @@ function centerText(text, totalW) {
   return ' '.repeat(pad) + text
 }
 
+/**
+ * 支援 width/height 放大倍率的置中：放大後每個字元（含空格）視覺寬度會變成
+ * scale 倍，所以要先把可用欄寬換算成「縮放前的虛擬欄寬」再置中，
+ * 否則直接套用 centerText() 會因為空格也被放大而跑版。
+ */
+function centerTextScaled(text, totalW, scale = 1) {
+  const virtualW = Math.floor(totalW / scale)
+  const pad = Math.max(0, Math.floor((virtualW - displayWidth(text)) / 2))
+  return ' '.repeat(pad) + text
+}
+
 function sortByCode(items) {
   return [...items].sort((a, b) => {
     const ca = (a.code || '\uFFFF').toUpperCase()
@@ -333,10 +344,23 @@ export async function printUberReceipt(order) {
 // =============================================================================
 
 /**
+ * 穩定解析綠界回傳的日期格式（例如 "2026/07/03 21:07:41" 或 "2026-07-03"）
+ * 直接用 new Date() 在部分瀏覽器（尤其 iPad Safari）對 "/" 格式解析不穩，
+ * 所以改用正則手動拆解，避免出現 NaN。
+ */
+function parseEcpayDate(dateStr) {
+  if (!dateStr) return new Date()
+  const m = String(dateStr).match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/)
+  if (!m) return new Date()
+  const [, y, mo, d, h = '0', mi = '0', s = '0'] = m
+  return new Date(+y, +mo - 1, +d, +h, +mi, +s)
+}
+
+/**
  * 民國年期別：2026-07 → 115年07-08月
  */
 function invoicePeriodLabel(dateStr) {
-  const d = new Date(dateStr)
+  const d = parseEcpayDate(dateStr)
   const rocYear = d.getFullYear() - 1911
   const month = d.getMonth() + 1
   const startM = month % 2 === 0 ? month - 1 : month
@@ -345,36 +369,29 @@ function invoicePeriodLabel(dateStr) {
 }
 
 /**
- * 財政部左側 QRCode 內容
- * 格式：發票號碼(10) + 民國日期(7) + 隨機碼(4) + 銷售額hex(8) + 總額hex(8)
- *      + 買方統編(8) + 賣方統編(8) + 加密驗證(24) + ":" 後接明細
- * 沒有財政部 AES key 時，加密段用 24 個 0 佔位（測試列印用）
+ * 【已移除自行組碼邏輯】
+ * 原本這裡自己手動組一維條碼 + 左右 QRCode 內容，其中「加密驗證資訊」24 碼是用
+ * 0 佔位（假資料），財政部證明聯條碼檢測項次 (6)(7)(8) 一定會判定不合格。
+ *
+ * 正確做法：發票開立後，後端 edge function（ecpay-invoice）已改為呼叫綠界
+ * 「查詢發票明細」(/B2CInvoice/GetIssue)，直接拿綠界用本店 AES 金鑰算好的
+ * PosBarCode / QRCode_Left / QRCode_Right，透過 inv.posBarCode / inv.qrCodeLeft /
+ * inv.qrCodeRight 傳進來，這裡只負責印，不再自己組碼或加密。
+ *
+ * 注意：這三個欄位必須綠界後台已設定「密碼種子(QRCode)」且已申請「自行開發 POS
+ * 版型」權限才會有值；若尚未設定，inv.qrCodeReady 會是 false，下面會跳過條碼區塊
+ * 並改印一行提醒文字，不印假條碼。
  */
-function buildInvoiceQrLeft(inv) {
-  const d = new Date(inv.invoiceDate ?? Date.now())
-  const rocDate = `${d.getFullYear() - 1911}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`
-  const salesHex = Math.round(inv.salesAmount ?? 0).toString(16).padStart(8, '0')
-  const totalHex = Math.round(inv.totalAmount ?? 0).toString(16).padStart(8, '0')
-  const buyer  = (inv.buyerTaxId ?? '00000000').padStart(8, '0')
-  const seller = (inv.sellerTaxId ?? '00000000').padStart(8, '0')
-  const encrypt = '0'.repeat(24)  // 正式環境需用財政部 QRCode AES key 加密
-  const itemCount = (inv.items ?? []).length
-  const head = `${inv.invoiceNumber}${rocDate}${inv.randomCode}${salesHex}${totalHex}${buyer}${seller}${encrypt}`
-  const items = (inv.items ?? []).slice(0, 2)
-    .map(i => `${i.name}:${i.qty}:${i.price}`).join(':')
-  return `${head}:**********:${itemCount}:${itemCount}:1:${items}`
-}
-
-function buildInvoiceQrRight(inv) {
-  const items = (inv.items ?? []).slice(2)
-    .map(i => `${i.name}:${i.qty}:${i.price}`).join(':')
-  return `**${items || ' '}`
-}
 
 /**
  * 列印電子發票證明聯
  * inv: { invoiceNumber, randomCode, invoiceDate, salesAmount, taxAmount,
- *        totalAmount, sellerTaxId, buyerTaxId, companyName, items }
+ *        totalAmount, sellerTaxId, buyerTaxId, companyName, items,
+ *        posBarCode, qrCodeLeft, qrCodeRight, qrCodeReady }
+ *
+ * posBarCode / qrCodeLeft / qrCodeRight 是綠界「查詢發票明細」(GetIssue) API
+ * 回傳、已用本店 AES 金鑰加密好的合規條碼內容，直接印，不在這裡重算。
+ * qrCodeReady 為 false 時代表綠界尚未設定密碼種子/POS 版型權限，不印條碼區塊。
  */
 export async function printInvoiceReceipt(inv) {
   return new Promise(async (resolve) => {
@@ -387,77 +404,142 @@ export async function printInvoiceReceipt(inv) {
 
     req += builder.createInitializationElement()
     req += builder.createTextElement({ codepage: 'big5' })
-    req += builder.createAlignmentElement({ position: 'center' })
+    // 注意：這裡不設定 alignment:center。跟結帳收據頁尾「感謝您的購買」用的是
+    // 同一套「手動空格置中」技巧（centerText / padLine），印表機本身維持預設的
+    // 左對齊狀態即可，兩者疊加才是先前 QRCode 與標題偏右的真正原因。
 
-    // ── 店名（大字）──────────────────────────────────────────────────────────
+    // ── 店名（放大 1.5 倍效果：用 width:2,height:2，搭配縮放置中）───────────────
     const storeName = inv.companyName || layout.storeName || 'VisionPOS'
-    req += builder.createTextElement({ emphasis: true, width: 2, height: 2, ...bigText(storeName + '\n') })
+    req += builder.createTextElement({ emphasis: true, width: 2, height: 2, ...bigText(centerTextScaled(storeName, LINE_W, 2) + '\n') })
 
     // ── 電子發票證明聯 ────────────────────────────────────────────────────────
-    req += builder.createTextElement({ emphasis: true, width: 2, height: 2, ...bigText('電子發票證明聯\n') })
+    req += builder.createTextElement({ emphasis: true, width: 2, height: 2, ...bigText(centerTextScaled('電子發票證明聯', LINE_W, 2) + '\n') })
 
-    // ── 期別 + 發票號碼（大字）──────────────────────────────────────────────
-    req += builder.createTextElement({ emphasis: true, width: 2, height: 2, ...bigText(invoicePeriodLabel(inv.invoiceDate) + '\n') })
+    // ── 期別 + 發票號碼 ──────────────────────────────────────────────────────
+    req += builder.createTextElement({ emphasis: true, width: 2, height: 2, ...bigText(centerTextScaled(invoicePeriodLabel(inv.invoiceDate), LINE_W, 2) + '\n') })
     const invNo = `${inv.invoiceNumber.slice(0, 2)}-${inv.invoiceNumber.slice(2)}`
-    req += builder.createTextElement({ emphasis: true, width: 2, height: 2, ...bigText(invNo + '\n') })
+    req += builder.createTextElement({ emphasis: true, width: 2, height: 2, ...bigText(centerTextScaled(invNo, LINE_W, 2) + '\n') })
 
-    req += builder.createAlignmentElement({ position: 'left' })
+    // ── 日期時間（用「列印當下」時間，不是綠界回傳的 invoiceDate）+ 格式代碼 ──────
+    // 重要：出單機的字級放大是「持續狀態」，不是單一標籤屬性 —— 上面標題區用了
+    // width:2,height:2 之後，如果後面的 <text> 沒有明確指定 width/height，
+    // 機器會沿用上一個放大狀態繼續印，而不是自動回到預設值。
+    // 所以這裡每一行都要明確寫 width:1,height:1 強制重設回正常大小。
+    const now = new Date()
+    const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`
+    const formatSuffix = inv.buyerTaxId ? '  格式 25' : ''
+    req += builder.createTextElement({ width: 1, height: 1, ...bigText(dateStr + formatSuffix + '\n') })
 
-    // ── 日期時間、隨機碼、總計、賣方 ─────────────────────────────────────────
-    const d = new Date(inv.invoiceDate ?? Date.now())
-    const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`
-    req += builder.createTextElement(bigText(dateStr + '\n'))
-    req += builder.createTextElement(bigText(`隨機碼：${inv.randomCode}  總計：${Math.round(inv.totalAmount)}\n`))
-    req += builder.createTextElement(bigText(`賣方${inv.sellerTaxId ?? ''}${inv.buyerTaxId ? `  買方${inv.buyerTaxId}` : ''}\n`))
-    req += builder.createTextElement(bigText('\n'))
+    // ── 隨機碼 / 總計（左右並排）──────────────────────────────────────────────
+    // TOTAL_OFFSET：總計往左移動的量（單位＝字元欄數）。
+    // 這台出單機實際可列印寬度跟我們假設的 LINE_W 常數不完全一致，
+    // 所以用這個數字直接試印調整，數字越大，總計越往左移。
+    const TOTAL_OFFSET = 6
+    req += builder.createTextElement({ width: 1, height: 1, ...bigText(padLine(`隨機碼:${inv.randomCode}`, `總計:${Math.round(inv.totalAmount)}`, LINE_W - TOTAL_OFFSET) + '\n') })
 
-    // ── 雙 QRCode ────────────────────────────────────────────────────────────
-    try {
-      const QRCode = (await import('qrcode')).default
-      const qrOpts = { width: 150, margin: 0 }
-      const [leftUrl, rightUrl] = await Promise.all([
-        QRCode.toDataURL(buildInvoiceQrLeft(inv),  qrOpts),
-        QRCode.toDataURL(buildInvoiceQrRight(inv), qrOpts),
-      ])
+    // ── 賣方 / 買方（左右並排，無統編時只印賣方）────────────────────────────────
+    const sellerStr = `賣方:${inv.sellerTaxId ?? ''}`
+    const buyerStr  = inv.buyerTaxId ? `買方:${inv.buyerTaxId}` : ''
+    req += builder.createTextElement({ width: 1, height: 1, ...bigText(padLine(sellerStr, buyerStr, LINE_W) + '\n') })
 
-      // 兩個 QR 並排畫在同一個 canvas
-      const size = 150
-      const gap  = 40
-      const canvas = document.createElement('canvas')
-      canvas.width  = DOT_W
-      canvas.height = size
-      const ctx = canvas.getContext('2d')
-      ctx.fillStyle = '#fff'
-      ctx.fillRect(0, 0, canvas.width, canvas.height)
+    // 賣方/買方跟一維條碼中間不再空一整行，兩者距離拉近，縮短整張證明聯長度
 
-      const [imgL, imgR] = await Promise.all([leftUrl, rightUrl].map(u => new Promise((res, rej) => {
-        const img = new Image()
-        img.onload = () => res(img); img.onerror = rej; img.src = u
-      })))
+    // ── 條碼區塊：只有 inv.qrCodeReady === true（綠界 GetIssue 有回傳官方條碼內容）
+    //    才印一維條碼 + 雙 QRCode，避免印出不合規的假條碼 ──────────────────────────
+    if (inv.qrCodeReady && inv.posBarCode && inv.qrCodeLeft) {
+      // ── 一維條碼（財政部規格：Code39，年期別5+字軌號碼10+隨機碼4，內容直接用
+      //    綠界 GetIssue 回傳的 posBarCode，不自己組碼）─────────────────────────
+      // 改用 jsbarcode 畫成點陣圖，透過 createBitImageElement 印，不用印表機內建的
+      // <barcode symbology="Code39"> 指令——實測 Star mC-Print3 對 StarWebPRNT 的
+      // Code39 指令沒有反應（不會報錯，但紙上完全印不出來），Code128 才印得出來；
+      // 但財政部規格明定一維條碼必須是 Code39，不能為了印得出來改回 Code128，
+      // 所以繞過印表機內建的條碼渲染引擎，自己畫成圖片印，兩邊都能滿足。
+      try {
+        const JsBarcode = (await import('jsbarcode')).default
+        const rawCanvas = document.createElement('canvas')
+        JsBarcode(rawCanvas, inv.posBarCode, {
+          format:       'CODE39',
+          width:        1,      // 最窄 bar 的像素寬度，故意設窄一點確保 58mm 紙也印得下
+          height:       40,     // 財政部規格：條碼高度需 ≥ 0.5 公分，203dpi 下約 40 dots
+          displayValue: false,  // 條碼下方不印文字，證明聯已經另外印隨機碼/發票號碼了
+          margin:       0,
+        })
 
-      const startX = Math.floor((DOT_W - size * 2 - gap) / 2)
-      ctx.drawImage(imgL, startX, 0, size, size)
-      ctx.drawImage(imgR, startX + size + gap, 0, size, size)
+        const barcodeCanvas = document.createElement('canvas')
+        barcodeCanvas.width  = DOT_W
+        // 高度固定用我們自己要的印刷高度，不受 rawCanvas 實際尺寸影響
+        const printHeight = 50
+        barcodeCanvas.height = printHeight
+        const bctx = barcodeCanvas.getContext('2d')
+        bctx.fillStyle = '#fff'
+        bctx.fillRect(0, 0, barcodeCanvas.width, barcodeCanvas.height)
 
-      req += builder.createBitImageElement({ context: ctx, x: 0, y: 0, width: canvas.width, height: canvas.height })
-    } catch (e) {
-      console.warn('[printer] QRCode 產生失敗，略過', e)
+        // 寬度超過紙張可印範圍才縮小（保留左右各 10px 安全邊界），沒超過就用原始寬度、
+        // 置中列印；高度一律固定在 printHeight，不會因為壓縮寬度而跟著變矮
+        const maxW  = DOT_W - 20
+        const destW = Math.min(rawCanvas.width, maxW)
+        const startX = Math.floor((DOT_W - destW) / 2)
+        bctx.drawImage(rawCanvas, startX, 0, destW, printHeight)
+
+        req += builder.createBitImageElement({ context: bctx, x: 0, y: 0, width: barcodeCanvas.width, height: barcodeCanvas.height })
+        req += builder.createTextElement(bigText('\n'))
+      } catch (e) {
+        console.warn('[printer] 條碼產生失敗，略過', e)
+      }
+
+      // ── 雙 QRCode（維持原尺寸，用跟 Logo 一樣「畫在整張紙寬 canvas 上再手動置中」的
+      //    作法；內容直接用綠界回傳的 qrCodeLeft/qrCodeRight，內含正確加密驗證資訊）──
+      try {
+        const QRCode = (await import('qrcode')).default
+        const size = 130
+        const gap  = 24
+        const qrOpts = { width: size, margin: 0 }
+        const [leftUrl, rightUrl] = await Promise.all([
+          QRCode.toDataURL(inv.qrCodeLeft, qrOpts),
+          QRCode.toDataURL(inv.qrCodeRight || '**', qrOpts),
+        ])
+
+        // canvas 寬度 = 整張紙的可列印寬度（DOT_W），跟 logo 列印用的是同一套邏輯，
+        // 因為 logo 已確認置中正確，代表 DOT_W 本身是準的；
+        // 問題出在先前用 <alignment center> 交給印表機置中不可靠，改回手動算座標。
+        const canvas = document.createElement('canvas')
+        canvas.width  = DOT_W
+        canvas.height = size
+        const ctx = canvas.getContext('2d')
+        ctx.fillStyle = '#fff'
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+        const [imgL, imgR] = await Promise.all([leftUrl, rightUrl].map(u => new Promise((res, rej) => {
+          const img = new Image()
+          img.onload = () => res(img); img.onerror = rej; img.src = u
+        })))
+
+        const totalW = size * 2 + gap
+        const startX = Math.floor((DOT_W - totalW) / 2)
+        ctx.drawImage(imgL, startX, 0, size, size)
+        ctx.drawImage(imgR, startX + size + gap, 0, size, size)
+
+        req += builder.createBitImageElement({ context: ctx, x: 0, y: 0, width: canvas.width, height: canvas.height })
+      } catch (e) {
+        console.warn('[printer] QRCode 產生失敗，略過', e)
+      }
+    } else {
+      // 綠界尚未設定密碼種子/POS 版型權限，GetIssue 沒有回傳合規條碼內容。
+      // 印一行提醒文字讓店員知道這張證明聯目前缺條碼，而不是默默印出假條碼。
+      console.warn('[printer] inv.qrCodeReady=false，本次證明聯不列印條碼區塊')
+      req += builder.createTextElement({ width: 1, height: 1, ...bigText('※ 條碼尚未啟用，請洽系統管理員\n') })
     }
 
-    req += builder.createTextElement(bigText('\n'))
-    req += builder.createRuledLineElement({ thickness: 'thin', width: DOT_W })
-
-    // ── 品項明細 ──────────────────────────────────────────────────────────────
-    for (const item of (inv.items ?? [])) {
-      const line = padLine(`${item.name} x${item.qty}`, `$${(item.price * item.qty).toFixed(0)}`, LINE_W)
-      req += builder.createTextElement(bigText(line + '\n'))
+    // ── 有買方統編（B2B）才加印應稅銷售額/稅額 ──────────────────────────────────────
+    // 一般消費者(B2C)發票維持原樣不印明細金額；買受人是營業人時，對方需要這兩個
+    // 數字報稅/請款核對，所以額外印在 QRCode 下方；用小單位 feed（不是整行空白）
+    // 稍微跟 QRCode 拉開一點點距離，不會明顯增加證明聯總長度，靠左印
+    // （不用 padLine 左右平均分散）。
+    if (inv.buyerTaxId) {
+      req += builder.createFeedElement({ unit: 15 })
+      req += builder.createTextElement({ width: 1, height: 1, ...bigText(`應稅銷售額:${Math.round(inv.salesAmount ?? 0)}　稅額:${Math.round(inv.taxAmount ?? 0)}\n`) })
     }
-    req += builder.createRuledLineElement({ thickness: 'thin', width: DOT_W })
-    req += builder.createTextElement(bigText(padLine('銷售額(未稅)', `$${inv.salesAmount}`, LINE_W) + '\n'))
-    req += builder.createTextElement(bigText(padLine('稅額',        `$${inv.taxAmount}`,  LINE_W) + '\n'))
-    req += builder.createTextElement({ emphasis: true, ...bigText(padLine('總計', `$${Math.round(inv.totalAmount)}`, LINE_W) + '\n') })
 
-    req += builder.createTextElement(bigText('\n'))
     req += builder.createCutPaperElement({ feed: true })
 
     const trader = new StarWebPrintTrader({ url: getPrinterUrl(), papertype: 'normal', timeout: 3000 })

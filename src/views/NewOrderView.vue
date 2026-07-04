@@ -140,6 +140,7 @@ function handleAddItem(item) {
       price:      item.price,
       qty:        1,
       icon:       item.icon,
+      taxType:    item.taxType ?? 'taxable', // 應稅/免稅/零稅率，開電子發票時用來判斷是否混合稅率
     })
   }
 }
@@ -295,6 +296,10 @@ const total = computed(() =>
 
 /* ── 結帳流程 ── */
 const showPaymentModal = ref(false)
+// 重號檢核（項次 1）：防止 iPad 觸控連點/事件重複觸發，同一次結帳只允許處理一次，
+// 避免同一張訂單被送出兩次、對應開立兩張發票。搭配 showPaymentModal 立刻設 false
+// （讓 PaymentModal 的按鈕從畫面上消失）雙重防護。
+const isProcessingPayment = ref(false)
 
 function handleCharge() {
   if (cartItems.value.length === 0) return
@@ -303,8 +308,18 @@ function handleCharge() {
 }
 
 async function handlePaymentConfirmed({ method, methodLabel, paymentAmount, changeAmount, card4, carrierNum, buyerTaxId }) {
+  if (isProcessingPayment.value) return
+  isProcessingPayment.value = true
   showPaymentModal.value = false
 
+  try {
+    await handlePaymentConfirmedInner({ method, methodLabel, paymentAmount, changeAmount, card4, carrierNum, buyerTaxId })
+  } finally {
+    isProcessingPayment.value = false
+  }
+}
+
+async function handlePaymentConfirmedInner({ method, methodLabel, paymentAmount, changeAmount, card4, carrierNum, buyerTaxId }) {
   const pickupNumber = await getNextPickupNumber()
 
   const paymentFields = {
@@ -367,6 +382,7 @@ async function handlePaymentConfirmed({ method, methodLabel, paymentAmount, chan
     const { useInvoice } = await import('@/composables/useInvoice.js')
     const { isInvoiceEnabled, issueInvoice } = useInvoice()
     if (await isInvoiceEnabled()) {
+      // fire-and-forget，不阻擋結帳流程；若綠界條碼尚未就緒只在 console 提醒，不彈窗打斷結帳
       issueInvoice({
         id:        savedOrder.id,
         orderType: orderType.value === 'takeout' ? 'takeout' : 'dine_in',
@@ -374,6 +390,8 @@ async function handlePaymentConfirmed({ method, methodLabel, paymentAmount, chan
         total:     total.value,
         buyerTaxId,
         carrierNum,
+      }).then(res => {
+        if (res?.warning) console.warn('[invoice]', res.warning)
       })
     }
   }

@@ -83,7 +83,13 @@
             </div>
             <div class="iv__row">
               <div class="iv__label">剩餘發票號碼數</div>
-              <div class="iv__value">{{ form.remain_count }}</div>
+              <div class="iv__value">
+                {{ form.remain_count }}
+                <button class="iv__remain-refresh" :disabled="remainSyncing" @click="handleSyncRemainCount">
+                  {{ remainSyncing ? '查詢中...' : '重新查詢' }}
+                </button>
+                <span v-if="remainSyncError" class="iv__remain-error">{{ remainSyncError }}</span>
+              </div>
             </div>
             <div class="iv__row">
               <div class="iv__label">環境</div>
@@ -93,6 +99,37 @@
                 </div>
                 <span style="font-size:13px;color:#7a6850">{{ form.is_test ? '測試環境' : '正式環境' }}</span>
               </label>
+            </div>
+            <div class="iv__row">
+              <div class="iv__label">混合稅率資格</div>
+              <label class="iv__toggle-label">
+                <div class="iv__toggle iv__toggle--sm" :class="{ 'iv__toggle--on': form.mixed_tax_approved }" @click="form.mixed_tax_approved = !form.mixed_tax_approved">
+                  <div class="iv__toggle-thumb" />
+                </div>
+                <span style="font-size:13px;color:#7a6850">{{ form.mixed_tax_approved ? '已取得核可' : '尚未取得核可' }}</span>
+              </label>
+            </div>
+            <p class="iv__mixed-tax-hint">
+              ⚠️ 訂單同時包含應稅與免稅/零稅率商品時，須開立「混合稅率」發票(TaxType=9)，
+              財政部規定這需要事先申請核可。請先跟綠界業務／財政部確認貴店已核准後，再打開這個開關；
+              沒打開的話，遇到混合稅率訂單開票會直接被系統擋下，不會誤開一張沒有資格開的發票。
+            </p>
+          </div>
+
+          <!-- 開機檢核 -->
+          <div class="iv__boot-check">
+            <div class="iv__boot-check-header">
+              <span>開機檢核</span>
+              <button class="iv__boot-check-btn" :disabled="bootChecking" @click="handleBootCheck">
+                {{ bootChecking ? '檢核中...' : '重新檢核' }}
+              </button>
+            </div>
+            <div v-if="bootResult" class="iv__boot-check-items">
+              <div v-for="item in bootResult.items" :key="item.label" class="iv__boot-check-item">
+                <span class="iv__boot-check-icon" :class="item.ok ? 'ok' : 'fail'">{{ item.ok ? '✓' : '✗' }}</span>
+                <span class="iv__boot-check-label">{{ item.label }}</span>
+                <span class="iv__boot-check-detail">{{ item.detail }}</span>
+              </div>
             </div>
           </div>
 
@@ -112,6 +149,8 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useInvoiceBootCheck } from '@/composables/useInvoiceBootCheck.js'
+import { useInvoice } from '@/composables/useInvoice.js'
 import AppTopbar       from '@/components/layout/AppTopbar.vue'
 import SettingsSidebar from '@/components/settings/SettingsSidebar.vue'
 import { supabase }    from '@/lib/supabase.js'
@@ -122,6 +161,8 @@ const loading   = ref(true)
 const saving    = ref(false)
 const saved     = ref(false)
 const saveError = ref('')
+const remainSyncing   = ref(false)
+const remainSyncError = ref('')
 
 const form = ref({
   enabled:      false,
@@ -136,6 +177,7 @@ const form = ref({
   pos_id:       '',
   remain_count: 0,
   is_test:      true,
+  mixed_tax_approved: false,
 })
 
 onMounted(async () => {
@@ -162,10 +204,34 @@ onMounted(async () => {
       pos_id:       data.pos_id ?? '',
       remain_count: data.remain_count ?? 0,
       is_test:      data.is_test ?? true,
+      mixed_tax_approved: data.mixed_tax_approved ?? false,
     }
   }
   loading.value = false
+
+  // 進入頁面時自動跑一次開機檢核
+  await handleBootCheck()
 })
+
+const { checking: bootChecking, result: bootResult, runBootCheck } = useInvoiceBootCheck()
+
+async function handleBootCheck() {
+  await runBootCheck()
+}
+
+const { syncRemainCount } = useInvoice()
+
+async function handleSyncRemainCount() {
+  remainSyncing.value   = true
+  remainSyncError.value = ''
+  const result = await syncRemainCount()
+  if (result.ok) {
+    form.value.remain_count = result.remainCount
+  } else {
+    remainSyncError.value = result.error || '查詢失敗'
+  }
+  remainSyncing.value = false
+}
 
 async function handleSave() {
   saving.value   = true
@@ -228,9 +294,43 @@ async function handleSave() {
 .iv__select { flex: 1; border: none; outline: none; font-size: 15px; color: var(--color-text-primary); background: transparent; cursor: pointer; }
 .iv__value { flex: 1; font-size: 15px; color: var(--color-text-primary); }
 
+.iv__boot-check {
+  background: #fff; border: 1px solid #e8dcc8; border-radius: 10px;
+  padding: 14px 20px; margin-bottom: 12px;
+}
+.iv__boot-check-header {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 13px; font-weight: 600; color: var(--color-text-primary);
+  margin-bottom: 8px;
+}
+.iv__boot-check-btn {
+  font-size: 12px; padding: 4px 12px; border-radius: 6px;
+  background: #f0e8d8; color: #7a6850; border: 1px solid #c8b89a;
+}
+.iv__boot-check-btn:hover:not(:disabled) { background: #e8dcc8; }
+.iv__boot-check-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.iv__remain-refresh {
+  font-size: 11.5px; padding: 3px 10px; border-radius: 6px; margin-left: 10px;
+  background: #f0e8d8; color: #7a6850; border: 1px solid #c8b89a;
+}
+.iv__remain-refresh:hover:not(:disabled) { background: #e8dcc8; }
+.iv__remain-refresh:disabled { opacity: 0.6; cursor: not-allowed; }
+.iv__remain-error { font-size: 11.5px; color: #c0392b; margin-left: 8px; }
+.iv__boot-check-items { display: flex; flex-direction: column; gap: 6px; }
+.iv__boot-check-item { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.iv__boot-check-icon { width: 16px; text-align: center; font-weight: 700; }
+.iv__boot-check-icon.ok   { color: #2a7a3a; }
+.iv__boot-check-icon.fail { color: #c0392b; }
+.iv__boot-check-label  { min-width: 110px; color: var(--color-text-secondary); }
+.iv__boot-check-detail { color: var(--color-text-muted); }
+
 .iv__test-notice {
   background: #fff8e6; border: 1px solid #e8c840; border-radius: 10px;
   padding: 12px 16px; font-size: 13px; color: #806010; margin-bottom: 12px;
+}
+.iv__mixed-tax-hint {
+  font-size: 11.5px; color: #8a6020; line-height: 1.6;
+  padding: 8px 4px 0; margin: 0;
 }
 .iv__success { color: #2a7a3a; background: #e8f8ec; border-radius: 8px; padding: 10px 16px; font-size: 13px; text-align: center; }
 .iv__error   { color: #c0392b; background: #fde8e8; border-radius: 8px; padding: 10px 16px; font-size: 13px; text-align: center; }

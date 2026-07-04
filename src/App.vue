@@ -8,6 +8,14 @@
       </div>
     </Transition>
 
+    <!-- 開機檢核（檢測表項次3）：系統開啟後自動跑一次對時/賣方統編/發票字軌檢核，
+         有異常才顯示，正常時完全不打擾店員 -->
+    <Transition name="banner">
+      <div v-if="showBootCheckBanner" class="boot-check-banner" @click="showBootCheckBanner = false">
+        ⚠️ 電子發票開機檢核異常：{{ bootCheckFailDetail }}（點擊關閉）
+      </div>
+    </Transition>
+
     <Transition name="loading-fade">
       <div v-if="isLoading && authStore.isLoggedIn" class="app-loading">
         <div class="app-loading__bg" />
@@ -50,6 +58,7 @@ import { useAuthStore }        from '@/stores/authStore.js'
 import { getPrinterLogo }      from '@/lib/printer.js'
 import { useHeartbeat }        from '@/composables/useHeartbeat.js'
 import { useOffline }          from '@/composables/useOffline.js'
+import { useInvoiceBootCheck } from '@/composables/useInvoiceBootCheck.js'
 
 const menuStore        = useMenuStore()
 const reservationStore = useReservationStore()
@@ -59,11 +68,16 @@ const takeoutStore     = useTakeoutStore()
 const authStore        = useAuthStore()
 const { startHeartbeat } = useHeartbeat()
 const { isOffline, showBanner } = useOffline()
+const { runBootCheck }  = useInvoiceBootCheck()
 
 const logoSrc   = ref('')
 const isLoading = computed(() =>
   authStore.isLoggedIn && (menuStore.loading || reservationStore.loading)
 )
+
+// 開機檢核（檢測表項次3-(2)）：系統開啟後只跑異常時才顯示，正常不打擾
+const showBootCheckBanner = ref(false)
+const bootCheckFailDetail = ref('')
 
 onMounted(() => {
   authStore.restore()
@@ -76,6 +90,18 @@ onMounted(() => {
     tagStore.init()
     takeoutStore.init()
     startHeartbeat()  // 登入後才開始 heartbeat
+
+    // 電子發票開機檢核：對時、賣方統編、加值中心憑證、發票字軌延續性，
+    // 每次系統開啟（App 掛載）都自動跑一次，異常才跳警示，不影響正常操作流程
+    runBootCheck().then(result => {
+      if (result && !result.ok) {
+        const failed = result.items.filter(i => !i.ok).map(i => `${i.label}：${i.detail}`).join('；')
+        bootCheckFailDetail.value = failed
+        showBootCheckBanner.value = true
+      }
+    }).catch(e => {
+      console.warn('[App] 電子發票開機檢核執行失敗', e)
+    })
   }
 })
 </script>
@@ -114,6 +140,20 @@ onMounted(() => {
 .offline-banner--online { background: #27ae60; }
 .banner-enter-active, .banner-leave-active { transition: transform 0.3s ease, opacity 0.3s ease; }
 .banner-enter-from, .banner-leave-to { transform: translateY(-100%); opacity: 0; }
+
+.boot-check-banner {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 99998;
+  padding: 10px 20px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  background: #c07818;
+  color: #fff;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+}
 
 .app-loading {
   position: absolute; inset: 0; z-index: 9999;

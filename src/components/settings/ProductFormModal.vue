@@ -53,6 +53,22 @@
             <input v-model="form.icon" class="pfm-input pfm-input--icon" type="text" placeholder="貼上 emoji，例如 🍗" maxlength="4" />
           </div>
 
+          <div class="pfm-field">
+            <label class="pfm-label">
+              課稅別
+              <span class="pfm-tax-hint">影響電子發票開立方式</span>
+            </label>
+            <select v-model="form.taxType" class="pfm-input">
+              <option value="taxable">應稅（預設）</option>
+              <option value="exempt">免稅</option>
+              <option value="zero">零稅率</option>
+            </select>
+            <p v-if="form.taxType !== 'taxable'" class="pfm-tax-warning">
+              ⚠️ 訂單裡若同時有應稅跟{{ form.taxType === 'exempt' ? '免稅' : '零稅率' }}商品，會開立「混合稅率」發票，
+              須事先在發票設定頁確認已取得財政部/綠界核可，否則開票會被擋下。
+            </p>
+          </div>
+
           <!-- ── 使用食材（庫存扣料） ── -->
           <div class="pfm-recipe">
             <div class="pfm-recipe-header">
@@ -136,6 +152,7 @@ const form = reactive({
   cost:       props.initialData?.cost ?? 0,
   price:      props.initialData?.price ?? 0,
   icon:       props.initialData?.icon ?? '🍽️',
+  taxType:    props.initialData?.taxType ?? 'taxable',
 })
 
 /* ── 食材配方 ── */
@@ -206,6 +223,7 @@ function submit() {
     cost:       Math.round(finalCost * 100) / 100,
     price:      Number(form.price),
     icon:       form.icon.trim() || '🍽️',
+    taxType:    form.taxType,
     /* recipes 供 ProductManagementView 存入 product_ingredient_recipes */
     recipes:    recipes.value.filter(r => r.ingredientId && r.qty > 0),
   })
@@ -314,6 +332,13 @@ function submit() {
 .pfm-error {
   font-size: 12px; color: #c03020; background: #fff0ee;
   padding: 6px 10px; border-radius: 8px; border: 1px solid #f0c0b8;
+}
+
+.pfm-tax-hint { font-size: 10.5px; color: var(--color-text-muted); font-weight: 400; }
+.pfm-tax-warning {
+  font-size: 11px; color: #8a6020; background: #fff8ee;
+  border: 1px solid #e8d090; border-radius: 8px; padding: 6px 10px;
+  margin: 0; line-height: 1.5;
 }
 
 .pfm-footer {
