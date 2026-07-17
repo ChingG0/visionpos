@@ -162,9 +162,10 @@ export const useMenuStore = defineStore('menu', () => {
     const trimmed = label?.trim()
     if (!storeId || !trimmed) return null
     const maxSort = categories.value.length
+    const newId = `cat${Date.now()}`
     const { data, error: err } = await supabase
       .from('categories')
-      .insert({ label: trimmed, sort_order: maxSort, store_id: storeId })
+      .insert({ id: newId, label: trimmed, sort_order: maxSort, store_id: storeId })
       .select().single()
     if (err) { console.error('[menuStore] 新增分類失敗', err); return null }
     const newCat = { id: data.id, label: data.label, icon: data.icon }
