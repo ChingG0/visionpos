@@ -13,7 +13,7 @@
 
           <select v-model="filterCategory" class="iv__select">
             <option value="">全部分類</option>
-            <option v-for="c in CATEGORIES" :key="c">{{ c }}</option>
+            <option v-for="c in store.categories" :key="c">{{ c }}</option>
           </select>
 
           <select v-model="filterStatus" class="iv__select">
@@ -125,15 +125,39 @@
             </div>
             <div class="iv-field">
               <label>分類</label>
-              <select v-model="form.category" class="iv-input">
-                <option v-for="c in CATEGORIES" :key="c">{{ c }}</option>
-              </select>
+              <div class="iv-cat-row">
+                <select v-model="form.category" class="iv-input">
+                  <option v-for="c in store.categories" :key="c">{{ c }}</option>
+                </select>
+                <button type="button" class="iv-cat-add-btn" @click="showAddCat = !showAddCat">＋新增</button>
+              </div>
+              <div v-if="showAddCat" class="iv-cat-add-row">
+                <input
+                  v-model="newCatLabel" class="iv-input" type="text"
+                  placeholder="新分類名稱" maxlength="10"
+                  @keyup.enter="confirmAddCategory"
+                />
+                <button type="button" class="iv-cat-add-confirm" :disabled="!newCatLabel.trim() || addingCat" @click="confirmAddCategory">新增</button>
+                <button type="button" class="iv-cat-add-cancel" @click="showAddCat = false; newCatLabel = ''">取消</button>
+              </div>
             </div>
             <div class="iv-field">
               <label>單位</label>
-              <select v-model="form.unit" class="iv-input">
-                <option v-for="u in UNITS" :key="u">{{ u }}</option>
-              </select>
+              <div class="iv-cat-row">
+                <select v-model="form.unit" class="iv-input">
+                  <option v-for="u in store.units" :key="u">{{ u }}</option>
+                </select>
+                <button type="button" class="iv-cat-add-btn" @click="showAddUnit = !showAddUnit">＋新增</button>
+              </div>
+              <div v-if="showAddUnit" class="iv-cat-add-row">
+                <input
+                  v-model="newUnitLabel" class="iv-input" type="text"
+                  placeholder="新單位名稱" maxlength="6"
+                  @keyup.enter="confirmAddUnit"
+                />
+                <button type="button" class="iv-cat-add-confirm" :disabled="!newUnitLabel.trim() || addingUnit" @click="confirmAddUnit">新增</button>
+                <button type="button" class="iv-cat-add-cancel" @click="showAddUnit = false; newUnitLabel = ''">取消</button>
+              </div>
             </div>
             <div class="iv-field">
               <label>目前庫存</label>
@@ -341,11 +365,13 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import SettingsSidebar  from '@/components/settings/SettingsSidebar.vue'
 import AppTopbar        from '@/components/layout/AppTopbar.vue'
-import { useInventoryStore, CATEGORIES, UNITS } from '@/stores/inventoryStore.js'
+import { useInventoryStore } from '@/stores/inventoryStore.js'
 import { supabase } from '@/lib/supabase.js'
 
 const store = useInventoryStore()
 onMounted(() => store.fetchIngredients())
+onMounted(() => store.fetchCategories())
+onMounted(() => store.fetchUnits())
 
 const STOCKTAKE_REASONS = ['正常損耗', '忘記入庫', '忘記扣庫存', '報廢', '贈送', '其他']
 const LOG_TABS = [
@@ -402,13 +428,56 @@ const saving      = ref(false)
 const form        = ref(defaultForm())
 
 function defaultForm() {
-  return { name: '', category: '其他', unit: 'g', current_stock: 0, alert_threshold: 0, avg_cost: 0, supplier: '', last_restock_date: '' }
+  return {
+    name: '', category: store.categories[0] ?? '其他', unit: store.units[0] ?? 'g',
+    current_stock: 0, alert_threshold: 0, avg_cost: 0, supplier: '', last_restock_date: '',
+  }
 }
 
 function openAddModal() {
   editTarget.value = null
   form.value = defaultForm()
+  showAddCat.value = false
+  newCatLabel.value = ''
+  showAddUnit.value = false
+  newUnitLabel.value = ''
   showAddEdit.value = true
+}
+
+/* ── 新增食材分類 ── */
+const showAddCat  = ref(false)
+const newCatLabel = ref('')
+const addingCat   = ref(false)
+
+async function confirmAddCategory() {
+  const label = newCatLabel.value.trim()
+  if (!label) return
+  addingCat.value = true
+  const ok = await store.addCategory(label)
+  addingCat.value = false
+  if (ok) {
+    form.value.category = label
+    newCatLabel.value = ''
+    showAddCat.value = false
+  }
+}
+
+/* ── 新增食材單位 ── */
+const showAddUnit  = ref(false)
+const newUnitLabel = ref('')
+const addingUnit   = ref(false)
+
+async function confirmAddUnit() {
+  const label = newUnitLabel.value.trim()
+  if (!label) return
+  addingUnit.value = true
+  const ok = await store.addUnit(label)
+  addingUnit.value = false
+  if (ok) {
+    form.value.unit = label
+    newUnitLabel.value = ''
+    showAddUnit.value = false
+  }
 }
 
 function openEditModal(ing) {
@@ -418,6 +487,10 @@ function openEditModal(ing) {
     current_stock: ing.current_stock, alert_threshold: ing.alert_threshold,
     avg_cost: ing.avg_cost, supplier: ing.supplier || '', last_restock_date: ing.last_restock_date || '',
   }
+  showAddCat.value = false
+  newCatLabel.value = ''
+  showAddUnit.value = false
+  newUnitLabel.value = ''
   showAddEdit.value = true
 }
 
@@ -657,6 +730,26 @@ function fmtDateTime(iso) {
 .iv-btn--ghost:hover { background: #f0e8d8; }
 
 .req { color: #c0392b; }
+
+/* ── 新增分類 ── */
+.iv-cat-row { display: flex; gap: 6px; align-items: center; }
+.iv-cat-row .iv-input { flex: 1; }
+.iv-cat-add-btn {
+  flex-shrink: 0; padding: 8px 10px; border-radius: 8px; font-size: 12px; font-weight: 500;
+  color: #8a6020; background: #fde8c0; border: 1px solid #e8c888; white-space: nowrap;
+}
+.iv-cat-add-btn:hover { background: #f8dca0; }
+.iv-cat-add-row { display: flex; gap: 6px; margin-top: 6px; }
+.iv-cat-add-row .iv-input { flex: 1; padding: 6px 9px; font-size: 12.5px; }
+.iv-cat-add-confirm {
+  flex-shrink: 0; padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 500;
+  color: #fff; background: #3a7a3a; border: none;
+}
+.iv-cat-add-confirm:disabled { opacity: 0.5; }
+.iv-cat-add-cancel {
+  flex-shrink: 0; padding: 6px 10px; border-radius: 8px; font-size: 12px;
+  color: #7a6850; background: #f0e8d8; border: 1px solid #c8b89a;
+}
 
 /* ── 盤點 ── */
 .iv-stocktake-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px dashed #ede5d0; }

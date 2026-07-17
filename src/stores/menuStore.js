@@ -156,6 +156,22 @@ export const useMenuStore = defineStore('menu', () => {
     return categories.value.find(c => c.id === categoryId)?.label ?? categoryId
   }
 
+  /** 新增商品分類，回傳新分類 { id, label } 或 null */
+  async function addCategory(label) {
+    const storeId = getStoreId()
+    const trimmed = label?.trim()
+    if (!storeId || !trimmed) return null
+    const maxSort = categories.value.length
+    const { data, error: err } = await supabase
+      .from('categories')
+      .insert({ label: trimmed, sort_order: maxSort, store_id: storeId })
+      .select().single()
+    if (err) { console.error('[menuStore] 新增分類失敗', err); return null }
+    const newCat = { id: data.id, label: data.label, icon: data.icon }
+    categories.value.push(newCat)
+    return newCat
+  }
+
   async function reorderCategories(orderedIds) {
     const storeId = getStoreId()
     const reordered = orderedIds
@@ -174,6 +190,6 @@ export const useMenuStore = defineStore('menu', () => {
   return {
     categories, items, loading, error,
     init, reset, addItem, updateItem, duplicateItems,
-    setStatus, unpublish, publishAt, getCategoryLabel, reorderCategories,
+    setStatus, unpublish, publishAt, getCategoryLabel, reorderCategories, addCategory,
   }
 })

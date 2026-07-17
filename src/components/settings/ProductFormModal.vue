@@ -22,9 +22,21 @@
 
           <div class="pfm-field">
             <label class="pfm-label">商品分類 <span class="pfm-required">*</span></label>
-            <select v-model="form.categoryId" class="pfm-input">
-              <option v-for="cat in categories" :key="cat.id" :value="cat.id">{{ cat.label }}</option>
-            </select>
+            <div class="pfm-cat-row">
+              <select v-model="form.categoryId" class="pfm-input">
+                <option v-for="cat in categories" :key="cat.id" :value="cat.id">{{ cat.label }}</option>
+              </select>
+              <button type="button" class="pfm-cat-add-btn" @click="showAddCat = !showAddCat">＋新增</button>
+            </div>
+            <div v-if="showAddCat" class="pfm-cat-add-row">
+              <input
+                v-model="newCatLabel" class="pfm-input" type="text"
+                placeholder="新分類名稱" maxlength="10"
+                @keyup.enter="confirmAddCategory"
+              />
+              <button type="button" class="pfm-cat-add-confirm" :disabled="!newCatLabel.trim() || addingCat" @click="confirmAddCategory">新增</button>
+              <button type="button" class="pfm-cat-add-cancel" @click="showAddCat = false; newCatLabel = ''">取消</button>
+            </div>
           </div>
 
           <div class="pfm-row">
@@ -133,7 +145,10 @@
 <script setup>
 import { reactive, ref, computed, watch, onMounted } from 'vue'
 import { useInventoryStore } from '@/stores/inventoryStore.js'
+import { useMenuStore } from '@/stores/menuStore.js'
 import { supabase } from '@/lib/supabase.js'
+
+const menuStore = useMenuStore()
 
 const props = defineProps({
   categories:  { type: Array,  required: true },
@@ -154,6 +169,26 @@ const form = reactive({
   icon:       props.initialData?.icon ?? '🍽️',
   taxType:    props.initialData?.taxType ?? 'taxable',
 })
+
+/* ── 新增商品分類 ── */
+const showAddCat  = ref(false)
+const newCatLabel = ref('')
+const addingCat   = ref(false)
+
+async function confirmAddCategory() {
+  const label = newCatLabel.value.trim()
+  if (!label) return
+  addingCat.value = true
+  const newCat = await menuStore.addCategory(label)
+  addingCat.value = false
+  if (newCat) {
+    form.categoryId = newCat.id
+    newCatLabel.value = ''
+    showAddCat.value = false
+  } else {
+    errorMsg.value = '新增分類失敗，請稍後再試'
+  }
+}
 
 /* ── 食材配方 ── */
 const inventoryStore = useInventoryStore()
@@ -282,6 +317,26 @@ function submit() {
 .pfm-input:disabled { color: #9a8868; background: #f0ebe0; }
 .pfm-input--auto    { color: #8a6020; background: #fff8ee; border-color: #e8d090; }
 .pfm-input--icon    { font-size: 18px; text-align: center; }
+
+/* ── 新增分類 ── */
+.pfm-cat-row { display: flex; gap: 6px; align-items: center; }
+.pfm-cat-row .pfm-input { flex: 1; }
+.pfm-cat-add-btn {
+  flex-shrink: 0; padding: 7px 10px; border-radius: 8px; font-size: 12px; font-weight: 500;
+  color: #8a6020; background: #fde8c0; border: 1px solid #e8c888; white-space: nowrap;
+}
+.pfm-cat-add-btn:hover { background: #f8dca0; }
+.pfm-cat-add-row { display: flex; gap: 6px; margin-top: 6px; }
+.pfm-cat-add-row .pfm-input { flex: 1; padding: 6px 9px; font-size: 12.5px; }
+.pfm-cat-add-confirm {
+  flex-shrink: 0; padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 500;
+  color: #fff; background: #3a7a3a; border: none;
+}
+.pfm-cat-add-confirm:disabled { opacity: 0.5; }
+.pfm-cat-add-cancel {
+  flex-shrink: 0; padding: 6px 10px; border-radius: 8px; font-size: 12px;
+  color: #7a6850; background: #f0e8d8; border: 1px solid #c8b89a;
+}
 
 /* ── 食材配方 ── */
 .pfm-recipe {
