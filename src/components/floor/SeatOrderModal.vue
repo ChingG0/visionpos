@@ -231,23 +231,45 @@ const elapsedTime = computed(() => {
 
 function tagColorOf(tag) { return TAG_COLOR_MAP[tag.color] ?? TAG_COLOR_MAP.gray }
 
+/* 算「任意一張訂單」實際折扣金額，跟 currentDiscount 用同一套公式，
+ * 併單時要把每張被併訂單自己的折扣加總，所以拆成一個可重複呼叫的函式。 */
+function orderDiscountAmount(order) {
+  const d    = order?.discount
+  const base = (order?.subtotal ?? 0) + (order?.surcharge?.amount ?? 0)
+  if (!d?.value) return 0
+  return d.type === 'percent' ? Math.round(base * d.value / 100) : Math.min(d.value, base)
+}
+
 /* ── 加單（通知 DineInView 切換到新訂單模式） ── */
 function handleAddOrder() {
   emit('add-order', props.seat)
 }
 
-/* ── 完成單張結帳（已付款） ── */
+/* ── 完成結帳（已付款）──────────────────────────────────────────────────
+   併單結帳時，整組訂單會一起被標記付款，但畫面上只會顯示「目前這張」的
+   完成按鈕；如果這裡只完成 currentOrder，其他併單的訂單會永遠卡在 active
+   狀態，既不會進報表、金額也就對不起來。改成：把「所有已付款」的訂單
+   一次全部完成，非目前這張但同樣已付款的（併單/分次結帳都算）也一起結掉。 */
 async function completeCurrent() {
   if (!currentOrder.value || completing.value) return
   completing.value = true
-  const result = await dineInStore.completeOrder(currentOrder.value.id, props.seat.id)
+
+  const paidOrders = orders.value.filter(o => {
+    const m = o.paymentMethod ?? o.payment_method
+    return !!m && m !== '稍後付款'
+  })
+  const idsToComplete = paidOrders.length > 0
+    ? paidOrders.map(o => o.id)
+    : [currentOrder.value.id]
+
+  const result = await dineInStore.completeOrders(idsToComplete, props.seat.id)
   if (result === 'last') {
     await resetSeatStatus(props.seat.id)
     emit('completed', props.seat.id)
     emit('close')
-  } else if (result === 'more') {
-    orders.value = [...dineInStore.getOrdersBySeatId(props.seat.id)]
-    activeIdx.value = Math.min(activeIdx.value, orders.value.length - 1)
+  } else {
+    orders.value = orders.value.filter(o => !idsToComplete.includes(o.id))
+    activeIdx.value = Math.min(activeIdx.value, Math.max(orders.value.length - 1, 0))
   }
   completing.value = false
 }
@@ -349,37 +371,76 @@ async function handleMergePaymentAndComplete({ methodLabel, paymentAmount, chang
   const ids = [...mergeSet.value]
 
   // 併單只開「一張」發票，用第一筆訂單的 id 當作發票對應的 order_id（後端用它做重號防護的
-  // 冪等 key），品項則合併所有被併訂單的明細，總額用併單當下的 mergeTotal（cancelMerge()
-  // 之後 mergeSet 會被清空，mergeTotal 這個 computed 也會跟著變回 0，所以要在這裡先存好）。
-  const mergedOrderId = ids[0]
-  const mergedItems = orders.value
-    .filter(o => ids.includes(o.id))
-    .flatMap(o => o.items ?? [])
-  const mergedTotal = mergeTotal.value
+  // 冪等 key）。以前的做法是把付款資訊分別寫回每一張被併的訂單，DB 裡還是 N 筆各自獨立的
+  // 紀錄，結果報表會顯示 N 筆、金額被拆散、品項也各自分開——併單結帳照理應該是「一筆」交易。
+  // 現在改成：把所有被併訂單的品項/金額合併寫進第一筆（mergedOrderId），其餘的直接標記為
+  // 「已併入」（status='cancelled'），這樣報表只會出現合併後的那一筆，時間也統一是這次結帳
+  // 的時間，不會再是被併訂單各自原本建立的時間。
+  const mergedOrderId  = ids[0]
+  const mergedOrders   = orders.value.filter(o => ids.includes(o.id))
+  const otherIds       = ids.filter(id => id !== mergedOrderId)
+  const mergedItems    = mergedOrders.flatMap(o => o.items ?? [])
+  const mergedSubtotal = mergedOrders.reduce((s, o) => s + (o.subtotal ?? 0), 0)
+  const mergedTotal    = mergeTotal.value
+  const mergedNote     = mergedOrders.map(o => o.note).filter(Boolean).join('；') || null
+  const mergedTags     = Array.from(
+    new Map(mergedOrders.flatMap(o => o.tags ?? []).map(t => [t.id ?? t.label, t])).values()
+  )
+  // 加價/折扣也要一起併，不然合併後只留下第一張的加價/折扣，其他被併訂單原本自己的
+  // 折扣就會憑空消失——報表上「小計－折扣＋加價」會兌不上「總計」。作法：把每張被併
+  // 訂單自己的加價/折扣金額（用跟其他報表一樣的公式算出實際金額）加總，存成 amount 型態。
+  const mergedSurcharge = mergedOrders.reduce((s, o) => s + (o.surcharge?.amount ?? 0), 0)
+  const mergedDiscount  = mergedOrders.reduce((s, o) => s + orderDiscountAmount(o), 0)
+  const now = new Date().toISOString()
 
-  // ① 只寫入付款資訊，不完成訂單
-  await Promise.all(ids.map(id =>
-    supabase.from('dine_in_orders').update({
-      payment_method: methodLabel, payment_amount: paymentAmount, change_amount: changeAmount,
-    }).eq('id', id)
-  ))
+  // ① 把合併後的完整資料寫進主單（品項、金額、付款資訊、結帳時間一次到位）
+  await supabase.from('dine_in_orders').update({
+    items: mergedItems, subtotal: mergedSubtotal, total: mergedTotal,
+    tags: mergedTags, note: mergedNote,
+    surcharge: mergedSurcharge > 0 ? { amount: mergedSurcharge } : null,
+    discount:  mergedDiscount  > 0 ? { type: 'amount', value: mergedDiscount } : null,
+    payment_method: methodLabel, payment_amount: paymentAmount, change_amount: changeAmount,
+    completed_at: now,
+  }).eq('id', mergedOrderId)
 
-  // ② 同步更新 dineInStore 快取（關掉重開 modal 也能讀到正確狀態）
-  dineInStore.markOrdersPaid(props.seat.id, ids, methodLabel, paymentAmount, changeAmount)
+  // ② 其餘被併的訂單標記為已併入，不會再出現在報表（reportsStore 只抓 status='done'）
+  if (otherIds.length > 0) {
+    await Promise.all(otherIds.map(id =>
+      supabase.from('dine_in_orders').update({
+        status: 'cancelled', completed_at: now,
+        note: `[併入 ${formatSeatOrderLabel(mergedOrderId)}]`,
+      }).eq('id', id)
+    ))
+  }
 
-  // ③ 更新 local 訂單，讓畫面立即反應
+  // ③ 同步更新 dineInStore 快取（關掉重開 modal 也能讀到正確狀態，不用等 Realtime）
+  dineInStore.patchOrderLocal(props.seat.id, mergedOrderId, {
+    items: mergedItems, subtotal: mergedSubtotal, total: mergedTotal,
+    tags: mergedTags, note: mergedNote,
+    surcharge: mergedSurcharge > 0 ? { amount: mergedSurcharge } : null,
+    discount:  mergedDiscount  > 0 ? { type: 'amount', value: mergedDiscount } : null,
+  })
+  dineInStore.markOrdersPaid(props.seat.id, [mergedOrderId], methodLabel, paymentAmount, changeAmount)
+  for (const id of otherIds) dineInStore.removeOrderLocal(id, props.seat.id)
+
+  // ④ 更新 local 訂單，讓畫面立即反應（只留下合併後的主單）
   orders.value = [...dineInStore.getOrdersBySeatId(props.seat.id)]
   activeIdx.value = 0
   cancelMerge()
 
-  // ④ 座位圖橘色 → 綠色
+  // ⑤ 座位圖橘色 → 綠色
   await markTablePaid(props.seat.id)
   emit('payment-done', props.seat.id)
 
-  // ⑤ 電子發票：併單只開一張，金額/品項用合併後的資料
+  // ⑥ 電子發票：併單只開一張，金額/品項用合併後的資料
   await issueInvoiceIfEnabled({ orderId: mergedOrderId, items: mergedItems, total: mergedTotal, carrierNum, buyerTaxId })
 
   completing.value = false
+}
+
+/* 併入紀錄用的簡短標籤（純顯示用，不影響邏輯） */
+function formatSeatOrderLabel(orderId) {
+  return `#${String(orderId).slice(0, 8).toUpperCase()}`
 }
 
 /* ── 補印（靜默） ── */

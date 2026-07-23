@@ -462,7 +462,19 @@ serve(async (req) => {
       // 讓同一張訂單無論重試幾次都送出同一組 RelateNumber，
       // 一來符合綠界規定的「唯一值」語意（一張訂單終身只用一個），
       // 二來配合上面的既有發票檢查，若真的重試也能追蹤回同一張訂單。
-      const relateNumber = `VP${String(orderId).replace(/[^a-zA-Z0-9]/g, '').slice(0, 40)}`
+      //
+      // 但「作廢後修改重開」也會用同一個 orderId 再呼叫一次 issue，這種情況必須
+      // 送出一組「不一樣」的 RelateNumber，否則綠界可能把它當成同一次請求的重試，
+      // 直接把舊的（已作廢）發票號碼吐回來，等於修改沒有生效。做法：用該
+      // order_id 底下已經存在幾張發票（含作廢）決定版本號，第一次不加、第二次
+      // 之後加 V2、V3...。
+      const { count: priorInvoiceCount } = await supabase
+        .from('invoices')
+        .select('id', { count: 'exact', head: true })
+        .eq('order_id', orderId)
+      const versionSuffix = priorInvoiceCount && priorInvoiceCount > 0 ? `V${priorInvoiceCount + 1}` : ''
+      const relateNumberBase = `VP${String(orderId).replace(/[^a-zA-Z0-9]/g, '').slice(0, 40 - versionSuffix.length)}`
+      const relateNumber = `${relateNumberBase}${versionSuffix}`
 
       let carrierType = ''
       if (carrierNum) {

@@ -53,8 +53,15 @@
       <div v-if="orders.length === 0" class="ro__chart-empty">此期間無訂單資料</div>
       <div v-else class="ro__chart-wrap" ref="chartWrap">
         <svg class="ro__chart-svg"
-          :viewBox="`0 0 ${svgW} ${svgH}`"
-          preserveAspectRatio="none">
+          :width="svgW" :height="svgH"
+          :viewBox="`0 0 ${svgW} ${svgH}`">
+
+          <defs>
+            <linearGradient id="roBarGradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%"  stop-color="#f0b04e"/>
+              <stop offset="100%" stop-color="#e0932c"/>
+            </linearGradient>
+          </defs>
 
           <!-- Y 軸格線 -->
           <line v-for="tick in yTicks" :key="tick"
@@ -68,9 +75,9 @@
               :x="PAD_L + i * barStep + barGap"
               :y="yPos(item.total)"
               :width="barW"
-              :height="innerH - innerH * (1 - item.total / maxTotal)"
-              :fill="item.total > 0 ? '#e8a038' : '#f0e8d8'"
-              rx="2"/>
+              :height="Math.max(innerH * (item.total / maxTotal), item.total > 0 ? 3 : 0)"
+              :fill="item.total > 0 ? 'url(#roBarGradient)' : '#f0e8d8'"
+              rx="4"/>
 
             <!-- 金額標籤（只在有值的柱子顯示） -->
             <text v-if="item.total > 0"
@@ -129,7 +136,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useReportsStore } from '@/stores/reportsStore.js'
 
 const reportsStore = useReportsStore()
@@ -221,17 +228,39 @@ const chartData = computed(() => {
 
 const maxTotal = computed(() => Math.max(...chartData.value.map(d => d.total), 1))
 
-/* ── SVG 尺寸 ── */
-const svgW    = computed(() => Math.max(chartData.value.length * 80, 480))
+/* ── SVG 尺寸（依容器實際寬度撐滿，避免 viewBox 拉伸變形） ── */
+const chartWrap  = ref(null)
+const wrapWidth  = ref(480)
+let resizeObserver = null
+
+function measureWrap() {
+  if (chartWrap.value) wrapWidth.value = chartWrap.value.clientWidth || wrapWidth.value
+}
+
+onMounted(async () => {
+  await nextTick()
+  measureWrap()
+  if (chartWrap.value && typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect?.width
+      if (w) wrapWidth.value = w
+    })
+    resizeObserver.observe(chartWrap.value)
+  }
+})
+onUnmounted(() => resizeObserver?.disconnect())
+
+const MIN_BAR_STEP = 56
+const svgW    = computed(() => Math.max(chartData.value.length * MIN_BAR_STEP, wrapWidth.value))
 const svgH    = 200
-const PAD_L   = 36
-const PAD_R   = 8
-const PAD_T   = 20
-const PAD_B   = 18
+const PAD_L   = 40
+const PAD_R   = 10
+const PAD_T   = 24
+const PAD_B   = 20
 const innerH  = computed(() => svgH - PAD_T - PAD_B)
 const barStep = computed(() => (svgW.value - PAD_L - PAD_R) / Math.max(chartData.value.length, 1))
-const barGap  = computed(() => barStep.value * 0.25)
-const barW    = computed(() => Math.min(barStep.value - barGap.value * 2, 36))
+const barGap  = computed(() => barStep.value * 0.3)
+const barW    = computed(() => Math.min(barStep.value - barGap.value * 2, 40))
 
 function yPos(val) {
   return PAD_T + innerH.value * (1 - val / maxTotal.value)
@@ -375,8 +404,6 @@ function fmtShort(n) {
 
 .ro__chart-svg {
   display: block;
-  width: 100%;
-  height: 200px;
 }
 
 /* ── 比例條 ── */

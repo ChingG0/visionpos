@@ -19,13 +19,13 @@
     <!-- 指標卡片 -->
     <div class="ta__kpis">
       <div class="ta__kpi">
-        <p class="ta__kpi-label">外帶訂單總數</p>
-        <p class="ta__kpi-value">{{ takeoutOrders.length }}<span class="ta__kpi-unit">筆</span></p>
+        <p class="ta__kpi-label">外帶＋內用訂單總數</p>
+        <p class="ta__kpi-value">{{ eligibleOrders.length }}<span class="ta__kpi-unit">筆</span></p>
       </div>
       <div class="ta__kpi">
         <p class="ta__kpi-label">有標籤的訂單</p>
         <p class="ta__kpi-value">{{ taggedOrders.length }}<span class="ta__kpi-unit">筆</span></p>
-        <p class="ta__kpi-sub">{{ taggedPct }}% 的外帶訂單</p>
+        <p class="ta__kpi-sub">{{ taggedPct }}%</p>
       </div>
       <div class="ta__kpi">
         <p class="ta__kpi-label">標籤使用總次數</p>
@@ -42,8 +42,7 @@
     <div class="ta__chart-card">
       <div class="ta__card-title">標籤使用頻率</div>
       <div v-if="taggedOrders.length === 0" class="ta__empty">
-        此期間無帶有標籤的外帶訂單
-        <span class="ta__empty-hint">（只有外帶訂單才會記錄快速標籤）</span>
+        此期間無帶有標籤的訂單
       </div>
       <div v-else class="ta__bars">
         <div v-for="tag in tagStats" :key="tag.label" class="ta__bar-row">
@@ -80,14 +79,14 @@
     <!-- 標籤細節表格 -->
     <div class="ta__table-card">
       <div class="ta__card-title">標籤明細</div>
-      <p class="ta__note">※ 目前僅統計外帶訂單的快速標籤，外送訂單標籤資料由 Uber Eats 提供，尚未整合</p>
+      <p class="ta__note">※ 統計外帶、內用訂單的快速標籤；外送訂單標籤資料由 Uber Eats 提供，尚未整合</p>
       <table class="ta__table">
         <thead>
           <tr>
             <th>標籤</th>
             <th class="ta__th-num">使用次數</th>
             <th class="ta__th-num">佔有標籤訂單</th>
-            <th class="ta__th-num">佔外帶全部訂單</th>
+            <th class="ta__th-num">佔全部訂單</th>
           </tr>
         </thead>
         <tbody>
@@ -105,7 +104,7 @@
               {{ taggedOrders.length ? (tag.count / taggedOrders.length * 100).toFixed(1) : '0.0' }}%
             </td>
             <td class="ta__td-num">
-              {{ takeoutOrders.length ? (tag.count / takeoutOrders.length * 100).toFixed(1) : '0.0' }}%
+              {{ eligibleOrders.length ? (tag.count / eligibleOrders.length * 100).toFixed(1) : '0.0' }}%
             </td>
           </tr>
         </tbody>
@@ -156,10 +155,11 @@ function applyCustom() { preset.value = ''; reportsStore.fetchOrders(customStart
 onMounted(() => applyPreset('today'))
 
 /* ── 資料計算 ── */
-const takeoutOrders = computed(() => reportsStore.orders.filter(o => o.orderType === 'takeout'))
-const taggedOrders  = computed(() => takeoutOrders.value.filter(o => o.tags?.length > 0))
-const taggedPct     = computed(() =>
-  takeoutOrders.value.length ? (taggedOrders.value.length / takeoutOrders.value.length * 100).toFixed(1) : '0.0'
+// 標籤功能目前只有外帶、內用會用到（外送標籤資料由 Uber Eats 提供，尚未整合進來）
+const eligibleOrders = computed(() => reportsStore.orders.filter(o => o.orderType === 'takeout' || o.orderType === 'dine-in'))
+const taggedOrders   = computed(() => eligibleOrders.value.filter(o => o.tags?.length > 0))
+const taggedPct      = computed(() =>
+  eligibleOrders.value.length ? (taggedOrders.value.length / eligibleOrders.value.length * 100).toFixed(1) : '0.0'
 )
 
 const tagStats = computed(() => {

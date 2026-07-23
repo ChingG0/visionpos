@@ -126,23 +126,29 @@ export const useDineInStore = defineStore('dineInOrders', () => {
   function getOrdersBySeatId(seatId) { return activeOrders.value[seatId] ?? [] }
   function getOrderBySeatId(seatId)  { return activeOrders.value[seatId]?.[0] ?? null }
 
-  async function completeOrder(orderId, seatId) {
-    const { error } = await supabase
-      .from('dine_in_orders')
-      .update({ status: 'done', completed_at: new Date().toISOString() })
-      .eq('id', orderId)
-    if (error) { console.error('[dineInStore] 完成失敗', error); return false }
-    // Realtime 會自動移除
-    return 'last'
-  }
-
+  /** 完成一張或多張訂單（併單結帳時務必把整組已付款的訂單一次傳進來，
+   *  不然併單裡除了目前這張，其他張會卡在 active 狀態，永遠不會進報表）。
+   *  回傳 'last'：這桌已無其他 active 訂單；'more'：桌上還有其他未結的訂單。 */
   async function completeOrders(orderIds, seatId) {
-    await Promise.all(orderIds.map(id =>
+    const ids = [...new Set(orderIds)]
+    if (ids.length === 0) return 'last'
+    const results = await Promise.all(ids.map(id =>
       supabase.from('dine_in_orders')
         .update({ status: 'done', completed_at: new Date().toISOString() })
         .eq('id', id)
     ))
-    return 'last'
+    const firstError = results.find(r => r.error)?.error
+    if (firstError) console.error('[dineInStore] 完成失敗', firstError)
+
+    // 不等 Realtime 回來，直接把本地快取同步移除，避免時間差
+    for (const id of ids) removeOrder(id, seatId)
+
+    const remaining = activeOrders.value[seatId] ?? []
+    return remaining.length === 0 ? 'last' : 'more'
+  }
+
+  async function completeOrder(orderId, seatId) {
+    return completeOrders([orderId], seatId)
   }
 
   async function cancelOrder(orderId, seatId, { reason, staff }) {
@@ -152,6 +158,21 @@ export const useDineInStore = defineStore('dineInOrders', () => {
       .eq('id', orderId)
     if (error) { console.error('[dineInStore] 取消失敗', error); return false }
     return 'last'
+  }
+
+  /** 供呼叫端在還沒等到 Realtime 回來前，先把本地快取的訂單移除
+   *  （例如併單時，被併入主單的其他訂單要立即從畫面上消失）。 */
+  function removeOrderLocal(orderId, seatId) {
+    removeOrder(orderId, seatId)
+  }
+
+  /** 直接把任意欄位 patch 進本地快取的某張訂單（camelCase key），
+   *  不用等 Realtime 回來才看到最新內容（例如併單合併後的品項/金額）。 */
+  function patchOrderLocal(seatId, orderId, patch) {
+    const arr = activeOrders.value[seatId]
+    if (!arr) return
+    const idx = arr.findIndex(o => o.id === orderId)
+    if (idx >= 0) arr[idx] = { ...arr[idx], ...patch }
   }
 
   function markOrdersPaid(seatId, orderIds, methodLabel, paymentAmount, changeAmount) {
@@ -168,6 +189,6 @@ export const useDineInStore = defineStore('dineInOrders', () => {
     activeOrders, loading,
     init, reset, addOrder,
     getOrderBySeatId, getOrdersBySeatId,
-    completeOrder, completeOrders, cancelOrder, markOrdersPaid,
+    completeOrder, completeOrders, cancelOrder, markOrdersPaid, removeOrderLocal, patchOrderLocal,
   }
 })
