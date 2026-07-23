@@ -112,7 +112,7 @@
                   <span v-if="invoiceMap[order.id].status === 'void'" class="tr__void-badge">已作廢</span>
                   <button v-else class="tr__void-btn" @click.stop="confirmVoid(order, invoiceMap[order.id])">作廢</button>
                 </template>
-                <span v-else class="tr__td--muted">—</span>
+                <button v-else class="tr__void-btn" @click.stop="confirmCancelOrder(order)">作廢</button>
               </td>
               <!-- 補印 -->
               <td class="tr__td">
@@ -160,6 +160,45 @@
             <button class="tr__void-cancel" @click="voidingInvoice = null">取消</button>
             <button class="tr__void-confirm" :disabled="!voidReason || voiding" @click="doVoid">
               {{ voiding ? '作廢中...' : '確認作廢' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 作廢訂單 Modal（沒有開發票的訂單）-->
+    <Teleport to="body">
+      <div v-if="cancellingOrder" class="tr__void-modal-bg" @click.self="cancellingOrder = null">
+        <div class="tr__void-modal">
+          <h3>確認作廢訂單</h3>
+          <div class="tr__void-info">
+            <div>訂單：<strong>#{{ formatOrderId(cancellingOrder) }}</strong></div>
+            <div>類型：<strong>{{ cancellingOrder.typeLabel }}</strong></div>
+            <div>金額：<strong>${{ fmtNum(cancellingOrder.total) }}</strong></div>
+          </div>
+          <p class="tr__cancel-hint">此訂單沒有開立發票，作廢後會直接從交易紀錄移除，不會計入營業額。</p>
+          <div class="tr__void-reason-wrap">
+            <label>作廢原因 <span class="tr__void-required">*</span></label>
+            <select v-model="cancelOrderReason" class="tr__void-select">
+              <option value="">請選擇原因</option>
+              <option value="錯誤結帳">錯誤結帳</option>
+              <option value="顧客要求">顧客要求</option>
+              <option value="訂單取消">訂單取消</option>
+              <option value="金額錯誤">金額錯誤</option>
+              <option value="其他">其他</option>
+            </select>
+            <input v-if="cancelOrderReason === '其他'" v-model="cancelOrderReasonOther" class="tr__void-input" placeholder="請輸入原因" />
+          </div>
+          <div class="tr__void-reason-wrap">
+            <label>操作人員 <span class="tr__void-required">*</span></label>
+            <input v-model="cancelOrderStaff" class="tr__void-input" placeholder="帳號..." />
+          </div>
+          <div class="tr__void-actions">
+            <button class="tr__void-cancel" @click="cancellingOrder = null">取消</button>
+            <button class="tr__void-confirm"
+              :disabled="!cancelOrderReason || !cancelOrderStaff.trim() || cancellingOrderSaving"
+              @click="doCancelOrder">
+              {{ cancellingOrderSaving ? '處理中...' : '確認作廢' }}
             </button>
           </div>
         </div>
@@ -444,6 +483,49 @@ async function doVoid() {
   voidingOrder.value = null
 }
 
+// ── 作廢訂單（沒有開發票的訂單）─────────────────────────────────────────────────
+// 依訂單類型對應到正確的資料表；作廢後直接改成 status='cancelled'，
+// reportsStore 只抓 status='done'，所以下次撈資料它就不會再出現。
+const TABLE_BY_TYPE = { takeout: 'takeout_orders', delivery: 'delivery_orders', 'dine-in': 'dine_in_orders' }
+
+const cancellingOrder        = ref(null)
+const cancelOrderReason      = ref('')
+const cancelOrderReasonOther = ref('')
+const cancelOrderStaff       = ref('')
+const cancellingOrderSaving  = ref(false)
+
+function confirmCancelOrder(order) {
+  cancellingOrder.value        = order
+  cancelOrderReason.value      = ''
+  cancelOrderReasonOther.value = ''
+  cancelOrderStaff.value       = ''
+}
+
+async function doCancelOrder() {
+  if (!cancellingOrder.value || !cancelOrderReason.value || !cancelOrderStaff.value.trim() || cancellingOrderSaving.value) return
+  cancellingOrderSaving.value = true
+
+  const order  = cancellingOrder.value
+  const table  = TABLE_BY_TYPE[order.orderType]
+  const reason = cancelOrderReason.value === '其他' ? cancelOrderReasonOther.value : cancelOrderReason.value
+
+  const { error: updateErr } = await supabase.from(table).update({
+    status: 'cancelled',
+    note: `[作廢] 原因：${reason}　操作：${cancelOrderStaff.value.trim()}`,
+  }).eq('id', order.id)
+
+  if (updateErr) {
+    alert(`作廢失敗：${updateErr.message}`)
+  } else {
+    await Promise.all([
+      reportsStore.fetchOrders(customStart.value, customEnd.value),
+      fetchInvoices(customStart.value, customEnd.value),
+    ])
+  }
+
+  cancellingOrderSaving.value = false
+  cancellingOrder.value = null
+}
 </script>
 
 <style scoped>
@@ -511,6 +593,7 @@ async function doVoid() {
 .tr__void-confirm { flex: 2; padding: 10px; border-radius: 10px; font-size: 14px; font-weight: 600; color: #fff; background: #c0392b; border: none; cursor: pointer; }
 .tr__void-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
 .tr__void-confirm:hover:not(:disabled) { background: #a0301f; }
+.tr__cancel-hint { font-size: 11.5px; color: #8a6020; background: #fff8ee; border: 1px solid #e8d090; border-radius: 8px; padding: 8px 10px; margin: 0 0 16px; line-height: 1.5; }
 
 /* ── 訂單明細 Modal ── */
 .tr__detail-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; z-index: 9999; }
