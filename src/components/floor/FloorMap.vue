@@ -243,7 +243,10 @@ async function saveLayout(floor, items) {
   const storeId = getStoreId()
   const { error } = await supabase
     .from('floor_layouts')
-    .upsert({ store_id: storeId, floor_id: floor, items, updated_at: new Date().toISOString() })
+    .upsert(
+      { store_id: storeId, floor_id: floor, items, updated_at: new Date().toISOString() },
+      { onConflict: 'store_id,floor_id' }
+    )
   if (error) console.error('[FloorMap] 儲存座位圖失敗', error)
 }
 

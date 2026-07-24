@@ -50,15 +50,16 @@
             <th class="tr__th">發票號碼</th>
             <th class="tr__th">隨機碼</th>
             <th class="tr__th">作廢</th>
+            <th class="tr__th">刪除</th>
             <th class="tr__th">補印</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="reportsStore.loading">
-            <td colspan="15" class="tr__empty">載入中...</td>
+            <td colspan="16" class="tr__empty">載入中...</td>
           </tr>
           <tr v-else-if="filtered.length === 0">
-            <td colspan="15" class="tr__empty">此期間無交易紀錄</td>
+            <td colspan="16" class="tr__empty">此期間無交易紀錄</td>
           </tr>
           <template v-else>
             <tr v-for="order in filtered" :key="order.id" class="tr__row" @click="openDetail(order)">
@@ -113,6 +114,10 @@
                   <button v-else class="tr__void-btn" @click.stop="confirmVoid(order, invoiceMap[order.id])">作廢</button>
                 </template>
                 <button v-else class="tr__void-btn" @click.stop="confirmCancelOrder(order)">作廢</button>
+              </td>
+              <!-- 刪除 -->
+              <td class="tr__td">
+                <button class="tr__delete-btn" @click.stop="confirmDeleteOrder(order)">刪除</button>
               </td>
               <!-- 補印 -->
               <td class="tr__td">
@@ -199,6 +204,39 @@
               :disabled="!cancelOrderReason || !cancelOrderStaff.trim() || cancellingOrderSaving"
               @click="doCancelOrder">
               {{ cancellingOrderSaving ? '處理中...' : '確認作廢' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 刪除訂單 Modal（永久刪除，含關聯資料）-->
+    <Teleport to="body">
+      <div v-if="deletingOrder" class="tr__void-modal-bg" @click.self="closeDeleteOrder">
+        <div class="tr__void-modal">
+          <h3>永久刪除訂單</h3>
+          <div class="tr__void-info">
+            <div>訂單：<strong>#{{ formatOrderId(deletingOrder) }}</strong></div>
+            <div>類型：<strong>{{ deletingOrder.typeLabel }}</strong></div>
+            <div>金額：<strong>${{ fmtNum(deletingOrder.total) }}</strong></div>
+          </div>
+          <p class="tr__delete-warning">
+            ⚠️ 這會把這筆訂單、對應的發票紀錄（若已作廢）、庫存扣料紀錄一起永久刪除，並把當初扣掉的庫存加回來；
+            顧客資料（會員資訊）不會被刪除。此動作無法復原。
+          </p>
+          <div class="tr__void-reason-wrap">
+            <label>
+              <input type="checkbox" v-model="deleteConfirmChecked" style="margin-right:6px" />
+              我了解此動作無法復原，確定要永久刪除
+            </label>
+          </div>
+          <p v-if="deleteError" class="tr__edit-error-fallback">{{ deleteError }}</p>
+          <div class="tr__void-actions">
+            <button class="tr__void-cancel" @click="closeDeleteOrder">取消</button>
+            <button class="tr__delete-confirm-btn"
+              :disabled="!deleteConfirmChecked || deletingOrderSaving"
+              @click="doDeleteOrder">
+              {{ deletingOrderSaving ? '刪除中...' : '永久刪除' }}
             </button>
           </div>
         </div>
@@ -526,6 +564,88 @@ async function doCancelOrder() {
   cancellingOrderSaving.value = false
   cancellingOrder.value = null
 }
+
+// ── 刪除訂單（永久刪除，含關聯資料；顧客資訊/會員資料不動）───────────────────────
+const deletingOrder        = ref(null)
+const deleteConfirmChecked = ref(false)
+const deletingOrderSaving  = ref(false)
+const deleteError          = ref('')
+
+function confirmDeleteOrder(order) {
+  const inv = invoiceMap.value[order.id]
+  if (inv && inv.status !== 'void') {
+    alert('此訂單已開立有效發票，請先在「作廢」欄位作廢發票，才能刪除訂單。')
+    return
+  }
+  deletingOrder.value        = order
+  deleteConfirmChecked.value = false
+  deleteError.value          = ''
+}
+
+function closeDeleteOrder() {
+  deletingOrder.value = null
+  deleteError.value   = ''
+}
+
+async function doDeleteOrder() {
+  if (!deletingOrder.value || !deleteConfirmChecked.value || deletingOrderSaving.value) return
+  deletingOrderSaving.value = true
+  deleteError.value = ''
+
+  const order = deletingOrder.value
+  const table = TABLE_BY_TYPE[order.orderType]
+
+  try {
+    // ① 已作廢的發票紀錄一併刪除（有效發票在 confirmDeleteOrder 就擋掉了，不會走到這裡）
+    const inv = invoiceMap.value[order.id]
+    if (inv) {
+      const { error: invErr } = await supabase.from('invoices').delete().eq('id', inv.id)
+      if (invErr) throw new Error(`刪除發票紀錄失敗：${invErr.message}`)
+    }
+
+    // ② 找出這筆訂單的庫存扣料紀錄，把扣掉的庫存加回去，再刪除紀錄本身
+    const { data: deductLogs, error: logErr } = await supabase
+      .from('ingredient_stock_logs')
+      .select('id, ingredient_id, qty_change')
+      .eq('related_order_id', order.id)
+      .eq('log_type', 'deduct')
+    if (logErr) throw new Error(`讀取庫存紀錄失敗：${logErr.message}`)
+
+    for (const log of deductLogs ?? []) {
+      const { data: ing, error: ingErr } = await supabase
+        .from('ingredients').select('current_stock').eq('id', log.ingredient_id).maybeSingle()
+      if (ingErr) throw new Error(`讀取食材庫存失敗：${ingErr.message}`)
+      if (ing) {
+        // qty_change 扣料時是負數，這裡用「減去負數」把數量加回來
+        const { error: stockErr } = await supabase.from('ingredients')
+          .update({ current_stock: ing.current_stock - log.qty_change, updated_at: new Date().toISOString() })
+          .eq('id', log.ingredient_id)
+        if (stockErr) throw new Error(`還原庫存失敗：${stockErr.message}`)
+      }
+    }
+
+    if (deductLogs?.length) {
+      const { error: delLogErr } = await supabase
+        .from('ingredient_stock_logs').delete()
+        .eq('related_order_id', order.id).eq('log_type', 'deduct')
+      if (delLogErr) throw new Error(`刪除庫存紀錄失敗：${delLogErr.message}`)
+    }
+
+    // ③ 刪除訂單本身（顧客資訊存在 members 表，這裡完全不會動到）
+    const { error: orderErr } = await supabase.from(table).delete().eq('id', order.id)
+    if (orderErr) throw new Error(`刪除訂單失敗：${orderErr.message}`)
+
+    await Promise.all([
+      reportsStore.fetchOrders(customStart.value, customEnd.value),
+      fetchInvoices(customStart.value, customEnd.value),
+    ])
+    deletingOrderSaving.value = false
+    closeDeleteOrder()
+  } catch (e) {
+    deleteError.value = e?.message ?? '刪除失敗，請稍後再試'
+    deletingOrderSaving.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -594,6 +714,13 @@ async function doCancelOrder() {
 .tr__void-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
 .tr__void-confirm:hover:not(:disabled) { background: #a0301f; }
 .tr__cancel-hint { font-size: 11.5px; color: #8a6020; background: #fff8ee; border: 1px solid #e8d090; border-radius: 8px; padding: 8px 10px; margin: 0 0 16px; line-height: 1.5; }
+.tr__delete-btn { font-size: 11px; padding: 3px 10px; border-radius: 6px; background: #fff0ee; color: #a02010; border: 1px solid #f0b0a0; cursor: pointer; }
+.tr__delete-btn:hover { background: #ffe0da; }
+.tr__delete-warning { font-size: 11.5px; color: #a02010; background: #fff0ee; border: 1px solid #f0b0a0; border-radius: 8px; padding: 8px 10px; margin: 0 0 16px; line-height: 1.5; }
+.tr__delete-confirm-btn { flex: 2; padding: 10px; border-radius: 10px; font-size: 14px; font-weight: 600; color: #fff; background: #a02010; border: none; cursor: pointer; }
+.tr__delete-confirm-btn:hover:not(:disabled) { background: #801808; }
+.tr__delete-confirm-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.tr__edit-error-fallback { font-size: 12px; color: #c03020; background: #fff0ee; padding: 6px 10px; border-radius: 8px; border: 1px solid #f0c0b8; margin-bottom: 12px; }
 
 /* ── 訂單明細 Modal ── */
 .tr__detail-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; z-index: 9999; }

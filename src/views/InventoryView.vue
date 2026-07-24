@@ -366,7 +366,10 @@ import { ref, computed, watch, onMounted } from 'vue'
 import SettingsSidebar  from '@/components/settings/SettingsSidebar.vue'
 import AppTopbar        from '@/components/layout/AppTopbar.vue'
 import { useInventoryStore } from '@/stores/inventoryStore.js'
+import { useAuthStore } from '@/stores/authStore.js'
 import { supabase } from '@/lib/supabase.js'
+
+const authStore = useAuthStore()
 
 const store = useInventoryStore()
 onMounted(() => store.fetchIngredients())
@@ -407,12 +410,18 @@ const monthlyRestockCost   = ref(0)
 const monthlyStocktakeDiff = ref(0)
 
 async function fetchMonthlyStats() {
+  const storeId = authStore.store?.id
+  if (!storeId) return
   const startOfMonth = new Date()
   startOfMonth.setDate(1)
   startOfMonth.setHours(0, 0, 0, 0)
+  // ingredient_stock_logs 本身沒有 store_id 欄位，透過 ingredient_id 關聯到
+  // ingredients 表才知道屬於哪家店；用 !inner join 過濾，避免撈到別的店家的紀錄
+  // （原本完全沒有過濾，會把所有店家的進貨/盤點金額加在一起）。
   const { data } = await supabase
     .from('ingredient_stock_logs')
-    .select('log_type, total_cost')
+    .select('log_type, total_cost, ingredients!inner(store_id)')
+    .eq('ingredients.store_id', storeId)
     .gte('log_date', startOfMonth.toISOString())
   if (!data) return
   monthlyRestockCost.value   = data.filter(r => r.log_type === 'restock').reduce((s, r) => s + (r.total_cost ?? 0), 0)

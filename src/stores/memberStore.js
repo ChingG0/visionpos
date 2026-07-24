@@ -88,25 +88,31 @@ export const useMemberStore = defineStore('members', () => {
       }
       members.value.push(record)
     }
-    const { error: err } = await supabase.from('members').upsert(toDb(record))
+    // members 的唯一鍵是 (store_id, phone)，不同店家可能剛好有客人用同一支手機號碼，
+    // 一定要指定 onConflict，不然預設只會用 phone 判斷衝突，等於把別家店同號碼的
+    // 顧客資料整個蓋掉（併成同一筆、店名也會被換成後寫入的那一家）。
+    const { error: err } = await supabase.from('members').upsert(toDb(record), { onConflict: 'store_id,phone' })
     if (err) console.error('[memberStore] 儲存會員失敗', err)
   }
 
   async function updateContact(phone, { homePhone, address }) {
+    const storeId = getStoreId()
     const cleanPhone = phone.replace(/\D/g, '')
     const m = members.value.find(x => x.phone.replace(/\D/g, '') === cleanPhone)
     if (!m) return false
     m.homePhone = homePhone ?? m.homePhone
     m.address   = address   ?? m.address
     const { error: err } = await supabase
-      .from('members').update({ home_phone: m.homePhone, address: m.address }).eq('phone', cleanPhone)
+      .from('members').update({ home_phone: m.homePhone, address: m.address })
+      .eq('phone', cleanPhone).eq('store_id', storeId)
     if (err) { console.error('[memberStore] 更新聯絡資料失敗', err); return false }
     return true
   }
 
   async function deleteMembers(phones) {
     if (!phones.length) return false
-    const { error: err } = await supabase.from('members').delete().in('phone', phones)
+    const storeId = getStoreId()
+    const { error: err } = await supabase.from('members').delete().in('phone', phones).eq('store_id', storeId)
     if (err) { console.error('[memberStore] 刪除會員失敗', err); return false }
     members.value = members.value.filter(m => !phones.includes(m.phone))
     loaded = members.value.length > 0
@@ -149,7 +155,7 @@ export const useMemberStore = defineStore('members', () => {
     const newHabit = { date: reservationDate, reservationTime, seatedAt: new Date(seatedAt).toISOString(), diffMinutes: diffMin }
     m.arrivalHabits = [...(m.arrivalHabits ?? []), newHabit].slice(-30)
     m.avgArrivalDiff = Math.round(m.arrivalHabits.reduce((s, h) => s + h.diffMinutes, 0) / m.arrivalHabits.length)
-    const { error } = await supabase.from('members').upsert(toDb(m))
+    const { error } = await supabase.from('members').upsert(toDb(m), { onConflict: 'store_id,phone' })
     if (error) console.error('[memberStore] 記錄到達習慣失敗', error)
   }
 
@@ -158,7 +164,7 @@ export const useMemberStore = defineStore('members', () => {
     const m = members.value.find(x => x.phone.replace(/\D/g,'') === cleanPhone)
     if (!m) return false
     m.isBlacklisted = isBlacklisted; m.blacklistReason = reason
-    const { error } = await supabase.from('members').upsert(toDb(m))
+    const { error } = await supabase.from('members').upsert(toDb(m), { onConflict: 'store_id,phone' })
     if (error) { console.error('[memberStore] 黑名單操作失敗', error); return false }
     return true
   }

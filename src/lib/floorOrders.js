@@ -35,7 +35,10 @@ async function saveFloorItems(floorId, items) {
   const storeId = getStoreId()
   const { error } = await supabase
     .from('floor_layouts')
-    .upsert({ floor_id: floorId, items, store_id: storeId, updated_at: new Date().toISOString() })
+    .upsert(
+      { floor_id: floorId, items, store_id: storeId, updated_at: new Date().toISOString() },
+      { onConflict: 'store_id,floor_id' }
+    )
   if (error) console.error('[floorOrders] 儲存失敗', error)
 }
 

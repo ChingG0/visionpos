@@ -14,6 +14,14 @@ function storePrefix() {
   } catch { return 'visionpos' }
 }
 
+function getStoreId() {
+  try {
+    const raw = localStorage.getItem('visionpos_auth')
+    const { s } = JSON.parse(raw ?? '{}')
+    return s?.id ?? null
+  } catch { return null }
+}
+
 /* ═══════════════════════════════════════════════
    IP 設定
 ═══════════════════════════════════════════════ */
@@ -162,7 +170,12 @@ export function checkPrinterStatus(testIp) {
    取單號
 ═══════════════════════════════════════════════ */
 export async function getNextPickupNumber() {
-  const { data, error } = await supabase.rpc('next_pickup_number')
+  // next_pickup_number() 這個 DB function 本身有支援用 p_store_id 分店計算流水號，
+  // 但如果呼叫時沒帶這個參數，它會退回一個寫死的預設 store_id，等於所有店家
+  // 共用同一組計數器（取單號會被別家店的訂單插隊、跳號）。這裡一定要把目前登入
+  // 的 store_id 傳進去，才能真的各店各自獨立計數。
+  const storeId = getStoreId()
+  const { data, error } = await supabase.rpc('next_pickup_number', { p_store_id: storeId })
   if (error) { console.error('[printer] 取號失敗', error); return null }
   return data
 }
