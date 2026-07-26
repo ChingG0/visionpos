@@ -140,7 +140,8 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useReportsStore } from '@/stores/reportsStore.js'
 
 const reportsStore = useReportsStore()
-const orders = computed(() => reportsStore.orders)
+// 排除「稍後付款」的未收款訂單，營收只認列真的收到錢的
+const orders = computed(() => reportsStore.paidOrders)
 
 /* ── 日期選擇 ── */
 const DATE_OPTS = [

@@ -6,6 +6,9 @@ import DineInView            from '@/views/DineInView.vue'
 import TakeoutView           from '@/views/TakeoutView.vue'
 import DeliveryView          from '@/views/DeliveryView.vue'
 import ReservationView       from '@/views/ReservationView.vue'
+import KitchenStationView    from '@/views/KitchenStationView.vue'
+import MiscTransactionsView  from '@/views/MiscTransactionsView.vue'
+import StoreInfoView         from '@/views/StoreInfoView.vue'
 import ProductManagementView from '@/views/ProductManagementView.vue'
 import OrderSettingsView     from '@/views/OrderSettingsView.vue'
 import ReportsView           from '@/views/ReportsView.vue'
@@ -39,6 +42,8 @@ const routes = [
       { path: 'takeout',     name: 'Takeout',     component: TakeoutView },
       { path: 'delivery',    name: 'Delivery',    component: DeliveryView },
       { path: 'reservation', name: 'Reservation', component: ReservationView },
+      { path: 'kitchen-station', name: 'KitchenStation', component: KitchenStationView },
+      { path: 'misc',            name: 'MiscTransactions', component: MiscTransactionsView },
       { path: 'settings/products',  name: 'ProductManagement', component: ProductManagementView },
       { path: 'settings/order',     name: 'OrderSettings',     component: OrderSettingsView },
       { path: 'settings/reports',   name: 'Reports',           component: ReportsView },
@@ -48,6 +53,7 @@ const routes = [
       { path: 'settings/staff',     name: 'StaffManagement',   component: StaffManagementView },
       { path: 'settings/invoice',   name: 'InvoiceSettings',   component: InvoiceSettingsView },
       { path: 'settings/payment',   name: 'PaymentSettings',   component: PaymentSettingsView },
+      { path: 'settings/store',     name: 'StoreInfo',         component: StoreInfoView },
     ],
   },
 

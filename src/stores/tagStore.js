@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { supabase } from '@/lib/supabase.js'
 import { useAuthStore } from '@/stores/authStore.js'
 
@@ -11,8 +11,10 @@ export const useTagStore = defineStore('tags', () => {
 
   function getStoreId() { return useAuthStore().store?.id ?? null }
 
-  function fromDb(row) { return { id: row.id, label: row.label, color: row.color, sortOrder: row.sort_order } }
-  function toDb(t)     { return { id: t.id, label: t.label, color: t.color, sort_order: t.sortOrder, store_id: getStoreId() } }
+  // isQuick：是否顯示在點餐頁的「快速標籤」列。標籤管理裡建立的標籤預設都是快速標籤，
+  // 可以在「點餐設定」取消勾選，讓它只留給單品備註視窗使用（例如麵硬/麵軟這種只有特定商品才用得到的）。
+  function fromDb(row) { return { id: row.id, label: row.label, color: row.color, sortOrder: row.sort_order, isQuick: row.is_quick ?? true } }
+  function toDb(t)     { return { id: t.id, label: t.label, color: t.color, sort_order: t.sortOrder, is_quick: t.isQuick ?? true, store_id: getStoreId() } }
 
   async function init() {
     if (loaded) return
@@ -39,7 +41,7 @@ export const useTagStore = defineStore('tags', () => {
   async function addTag({ label, color }) {
     const storeId = getStoreId()
     const maxSort = tags.value.reduce((m, t) => Math.max(m, t.sortOrder ?? -1), -1)
-    const newTag  = { id: `t${Date.now()}`, label, color, sortOrder: maxSort + 1 }
+    const newTag  = { id: `t${Date.now()}`, label, color, sortOrder: maxSort + 1, isQuick: true }
     tags.value.push(newTag)
     const { error: err } = await supabase.from('tags').insert(toDb(newTag))
     if (err) console.error('[tagStore] addTag', err)
@@ -71,5 +73,17 @@ export const useTagStore = defineStore('tags', () => {
     )
   }
 
-  return { tags, loading, error, init, reset, addTag, updateTag, deleteTag, reorderTags }
+  /** 切換某個標籤是否顯示在點餐頁的「快速標籤」列（點餐設定用）。 */
+  async function setQuick(id, isQuick) {
+    const tag = tags.value.find(t => t.id === id)
+    if (!tag) return
+    tag.isQuick = isQuick
+    const { error: err } = await supabase
+      .from('tags').update({ is_quick: isQuick }).eq('id', id).eq('store_id', getStoreId())
+    if (err) console.error('[tagStore] setQuick', err)
+  }
+
+  const quickTags = computed(() => tags.value.filter(t => t.isQuick !== false))
+
+  return { tags, quickTags, loading, error, init, reset, addTag, updateTag, deleteTag, reorderTags, setQuick }
 })

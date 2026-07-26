@@ -12,6 +12,7 @@
         <TagAnalysis        v-if="currentPage === 'tags'"         />
         <DiscountAnalysis   v-if="currentPage === 'discounts'"    />
         <CustomerAnalysis   v-if="currentPage === 'customers'"    />
+        <ShiftRecords       v-if="currentPage === 'shifts'"       />
       </div>
     </div>
   </div>
@@ -24,6 +25,7 @@ import SettingsSidebar    from '@/components/settings/SettingsSidebar.vue'
 import AppTopbar          from '@/components/layout/AppTopbar.vue'
 import RevenueOverview    from '@/views/reports/RevenueOverview.vue'
 import TransactionRecords from '@/views/reports/TransactionRecords.vue'
+import ShiftRecords       from '@/views/reports/ShiftRecords.vue'
 import ProductAnalysis    from '@/views/reports/ProductAnalysis.vue'
 import TagAnalysis        from '@/views/reports/TagAnalysis.vue'
 import DiscountAnalysis   from '@/views/reports/DiscountAnalysis.vue'

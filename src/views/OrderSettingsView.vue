@@ -93,34 +93,54 @@
 
       </div>
 
-      <!-- 快速標籤管理 -->
+      <!-- 快速標籤：只能從「商品管理 → 標籤管理」建立的標籤裡挑選 + 調整順序 -->
       <section class="os__tags-section">
         <div class="os__tags-header">
           <h3 class="os__section-title">快速<span class="os__section-title-light">標籤</span></h3>
           <div class="os__tags-header-actions">
-            <button class="os__edit-tags-btn" @click="tagEditMode = !tagEditMode">
-              {{ tagEditMode ? '✓ 完成排序' : '編輯排序' }}
-            </button>
-            <button class="os__add-tag-btn" @click="openTagCreate">+ 新增標籤</button>
+            <button
+              class="os__edit-tags-btn"
+              :class="{ 'os__edit-tags-btn--active': tagPickMode }"
+              @click="togglePickMode"
+            >{{ tagPickMode ? '✓ 完成選擇' : '選擇標籤' }}</button>
+            <button
+              class="os__edit-tags-btn"
+              :class="{ 'os__edit-tags-btn--active': tagEditMode }"
+              @click="toggleEditMode"
+            >{{ tagEditMode ? '✓ 完成排序' : '編輯排序' }}</button>
           </div>
         </div>
+
         <p v-if="tagEditMode" class="os__tags-hint">拖曳調整標籤順序</p>
+        <p v-else-if="tagPickMode" class="os__tags-hint">
+          點擊切換是否顯示在點餐頁的快速標籤列（標籤本身要到「商品管理 → 標籤管理」新增或修改）
+        </p>
+
         <div class="os__tags-list">
           <button
-            v-for="tag in tagStore.tags"
+            v-for="tag in displayTags"
             :key="tag.id"
             :ref="el => setTagChipEl(tag.id, el)"
             class="os__tag-chip"
-            :class="{ 'os__tag-chip--edit': tagEditMode, 'os__tag-chip--dragging': tagDrag?.tagId === tag.id && tagDrag?.hasMoved }"
+            :class="{
+              'os__tag-chip--edit': tagEditMode,
+              'os__tag-chip--dragging': tagDrag?.tagId === tag.id && tagDrag?.hasMoved,
+              'os__tag-chip--off': tagPickMode && tag.isQuick === false,
+            }"
             :style="{
               background: tagColorOf(tag).bg,
               color: tagColorOf(tag).text,
               borderColor: tagColorOf(tag).border ?? tagColorOf(tag).bg,
             }"
             @pointerdown="tagEditMode && onTagPointerDown(tag, $event)"
-            @click="!tagEditMode && openTagEdit(tag)"
+            @click="tagPickMode && tagStore.setQuick(tag.id, tag.isQuick === false)"
           >{{ tag.label }}</button>
-          <p v-if="tagStore.tags.length === 0" class="os__empty-small">尚未建立標籤，點「新增標籤」開始</p>
+
+          <p v-if="displayTags.length === 0" class="os__empty-small">
+            {{ tagStore.tags.length === 0
+              ? '尚未建立標籤，請到「商品管理 → 標籤管理」新增'
+              : '目前沒有選取任何快速標籤，點「選擇標籤」挑選' }}
+          </p>
         </div>
       </section>
     </div>
@@ -157,22 +177,13 @@
       </div>
     </Teleport>
 
-    <TagFormModal
-      v-if="showTagModal"
-      :initial-data="editingTag"
-      @close="showTagModal = false"
-      @submit="handleTagSubmit"
-      @delete="handleTagDelete"
-    />
-
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import SettingsSidebar from '@/components/settings/SettingsSidebar.vue'
 import AppTopbar         from '@/components/layout/AppTopbar.vue'
-import TagFormModal      from '@/components/settings/TagFormModal.vue'
 import { useMenuStore }  from '@/stores/menuStore.js'
 import { useTagStore }   from '@/stores/tagStore.js'
 import { TAG_COLOR_MAP } from '@/constants/tagColors.js'
@@ -180,37 +191,35 @@ import { TAG_COLOR_MAP } from '@/constants/tagColors.js'
 const menuStore = useMenuStore()
 const tagStore  = useTagStore()
 
+onMounted(() => {
+  menuStore.init()
+  tagStore.init()
+})
+
 function tagColorOf(tag) {
   return TAG_COLOR_MAP[tag.color] ?? TAG_COLOR_MAP.gray
 }
 
-/* ── 標籤新增/編輯 ── */
-const showTagModal = ref(false)
-const editingTag    = ref(null)
-
-function openTagCreate() {
-  editingTag.value = null
-  showTagModal.value = true
-}
-
-function openTagEdit(tag) {
-  editingTag.value = tag
-  showTagModal.value = true
-}
-
-function handleTagSubmit(data) {
-  if (editingTag.value) tagStore.updateTag(editingTag.value.id, data)
-  else tagStore.addTag(data)
-  showTagModal.value = false
-}
-
-function handleTagDelete() {
-  if (editingTag.value) tagStore.deleteTag(editingTag.value.id)
-  showTagModal.value = false
-}
-
-/* ── 標籤拖曳排序 ── */
+/* ── 快速標籤：選擇模式 / 排序模式 ─────────────────────────────────────────
+   標籤本身的新增/改名/改色/刪除都移到「商品管理 → 標籤管理」，這裡只負責
+   ① 選擇哪些標籤要出現在點餐頁的快速標籤列 ② 調整它們的順序。 */
+const tagPickMode = ref(false)
 const tagEditMode = ref(false)
+
+// 選擇模式要看得到全部標籤（才能把沒選的加回來）；平常只顯示已選為快速標籤的
+const displayTags = computed(() =>
+  tagPickMode.value ? tagStore.tags : tagStore.tags.filter(t => t.isQuick !== false)
+)
+
+function togglePickMode() {
+  tagPickMode.value = !tagPickMode.value
+  if (tagPickMode.value) tagEditMode.value = false
+}
+
+function toggleEditMode() {
+  tagEditMode.value = !tagEditMode.value
+  if (tagEditMode.value) tagPickMode.value = false
+}
 const tagDrag      = ref(null)   // { tagId, label, color, startX, startY, x, y, dropIndex, hasMoved }
 const tagChipEls   = new Map()   // tagId -> HTMLElement
 
@@ -253,11 +262,11 @@ function onTagPointerMove(e) {
   }
 
   /* 標籤會換行排列，跟商品格一樣用 2D 最近距離決定插入位置 */
-  let nearestIdx   = tagStore.tags.length
+  let nearestIdx   = displayTags.value.length
   let nearestDist  = Infinity
   let insertBefore = true
 
-  tagStore.tags.forEach((tag, idx) => {
+  displayTags.value.forEach((tag, idx) => {
     if (tag.id === d.tagId) return
     const el = tagChipEls.get(tag.id)
     if (!el) return
@@ -283,10 +292,13 @@ function onTagPointerUp() {
 
   try {
     if (d.hasMoved && d.dropIndex != null) {
-      const ids = tagStore.tags.map(t => t.id).filter(id => id !== d.tagId)
-      const clamped = Math.max(0, Math.min(d.dropIndex, ids.length))
-      ids.splice(clamped, 0, d.tagId)
-      tagStore.reorderTags(ids)
+      // 排序模式下畫面上只有快速標籤，先在這批裡面排好，
+      // 沒被選為快速標籤的排在後面（它們不會出現在點餐頁，順序無所謂）。
+      const shownIds  = displayTags.value.map(t => t.id).filter(id => id !== d.tagId)
+      const clamped   = Math.max(0, Math.min(d.dropIndex, shownIds.length))
+      shownIds.splice(clamped, 0, d.tagId)
+      const hiddenIds = tagStore.tags.map(t => t.id).filter(id => !shownIds.includes(id))
+      tagStore.reorderTags([...shownIds, ...hiddenIds])
     }
   } catch (err) {
     console.error('[OrderSettingsView] 標籤排序失敗', err)
@@ -837,23 +849,19 @@ function onCategoryPointerUp() {
 
 .os__edit-tags-btn:hover { background: var(--color-bg-arrange-btn); }
 
+.os__edit-tags-btn--active {
+  background: #3a7a3a;
+  border-color: #2a6a2a;
+  color: #fff;
+  font-weight: 500;
+}
+.os__edit-tags-btn--active:hover { background: #2a6a2a; }
+
 .os__tags-hint {
   font-size: 11.5px;
   color: var(--color-text-muted);
   margin-bottom: 8px;
 }
-
-.os__add-tag-btn {
-  padding: 5px 12px;
-  background: #fff;
-  border: 1px solid var(--color-border-btn);
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  color: var(--color-text-primary);
-  transition: background 0.12s;
-}
-
-.os__add-tag-btn:hover { background: var(--color-bg-arrange-btn); }
 
 .os__tags-list {
   display: flex;
@@ -880,5 +888,12 @@ function onCategoryPointerUp() {
 
 .os__tag-chip--dragging {
   opacity: 0.35;
+}
+
+/* 選擇模式下，沒被選為快速標籤的顯示成淡淡的、加上虛線框 */
+.os__tag-chip--off {
+  opacity: 0.4;
+  border-style: dashed;
+  border-color: #b0a088 !important;
 }
 </style>

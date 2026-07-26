@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <div class="tfm-backdrop" @click.self="emit('close')">
-      <div class="tfm-box" role="dialog" aria-modal="true">
+      <div class="tfm-box" :class="{ 'tfm-box--wide': showProductPicker }" role="dialog" aria-modal="true">
 
         <div class="tfm-header">
           <h2 class="tfm-title">{{ isEdit ? '編輯標籤' : '新增標籤' }}</h2>
@@ -47,6 +47,38 @@
             >{{ label || '標籤文字' }}</span>
           </div>
 
+          <!-- 套用商品：點餐時點該商品的空白處，備註視窗會把這個標籤排在「常用標籤」 -->
+          <div v-if="showProductPicker" class="tfm-field">
+            <label class="tfm-label">
+              套用到商品
+              <span class="tfm-label-hint">點餐時這些商品的備註視窗會優先顯示這個標籤</span>
+            </label>
+
+            <div class="tfm-products">
+              <div v-for="cat in categoriesWithItems" :key="cat.id" class="tfm-cat-block">
+                <div class="tfm-cat-head">
+                  <span class="tfm-cat-label">{{ cat.label }}</span>
+                  <button type="button" class="tfm-cat-all" @click="toggleCategory(cat)">
+                    {{ isCategoryAllSelected(cat) ? '取消全選' : '全選' }}
+                  </button>
+                </div>
+                <div class="tfm-product-grid">
+                  <label
+                    v-for="item in cat.items" :key="item.id"
+                    class="tfm-product-chip"
+                    :class="{ 'tfm-product-chip--active': selectedProductIds.includes(item.id) }"
+                  >
+                    <input type="checkbox" :value="item.id" v-model="selectedProductIds" />
+                    {{ item.name }}
+                  </label>
+                </div>
+              </div>
+              <p v-if="categoriesWithItems.length === 0" class="tfm-products-empty">尚未建立商品</p>
+            </div>
+
+            <p class="tfm-selected-count">已選 {{ selectedProductIds.length }} 項商品</p>
+          </div>
+
           <p v-if="errorMsg" class="tfm-error">{{ errorMsg }}</p>
 
         </div>
@@ -70,6 +102,11 @@ import { TAG_COLORS, TAG_COLOR_MAP } from '@/constants/tagColors.js'
 
 const props = defineProps({
   initialData: { type: Object, default: null },   // null = 新增模式
+  // 套用商品選擇器（標籤管理頁才會傳，點餐設定不用）
+  showProductPicker:  { type: Boolean, default: false },
+  categories:         { type: Array,   default: () => [] },
+  items:              { type: Array,   default: () => [] },
+  initialProductIds:  { type: Array,   default: () => [] },
 })
 
 const emit = defineEmits(['close', 'submit', 'delete'])
@@ -82,10 +119,39 @@ const color = ref(props.initialData?.color ?? TAG_COLORS[0].id)
 
 const previewColor = computed(() => TAG_COLOR_MAP[color.value] ?? TAG_COLOR_MAP.gray)
 
+/* ── 套用商品 ── */
+const selectedProductIds = ref([...props.initialProductIds])
+
+const categoriesWithItems = computed(() =>
+  props.categories
+    .map(cat => ({
+      ...cat,
+      items: props.items
+        .filter(i => i.categoryId === cat.id)
+        .sort((a, b) => (a.code ?? '').localeCompare(b.code ?? '')),
+    }))
+    .filter(cat => cat.items.length > 0)
+)
+
+function isCategoryAllSelected(cat) {
+  return cat.items.every(i => selectedProductIds.value.includes(i.id))
+}
+
+function toggleCategory(cat) {
+  const ids = cat.items.map(i => i.id)
+  selectedProductIds.value = isCategoryAllSelected(cat)
+    ? selectedProductIds.value.filter(id => !ids.includes(id))
+    : [...new Set([...selectedProductIds.value, ...ids])]
+}
+
 function submit() {
   errorMsg.value = ''
   if (!label.value.trim()) { errorMsg.value = '請輸入標籤文字'; return }
-  emit('submit', { label: label.value.trim(), color: color.value })
+  emit('submit', {
+    label: label.value.trim(),
+    color: color.value,
+    productIds: props.showProductPicker ? selectedProductIds.value : null,
+  })
 }
 </script>
 
@@ -109,6 +175,8 @@ function submit() {
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
   font-family: 'Noto Sans TC', 'PingFang TC', sans-serif;
 }
+
+.tfm-box--wide { width: 460px; }
 
 .tfm-header {
   display: flex;
@@ -219,6 +287,39 @@ function submit() {
   padding: 4px 12px;
   border-radius: 999px;
 }
+
+/* ── 套用商品 ── */
+.tfm-label-hint { font-weight: 400; font-size: 10.5px; color: #9a8868; margin-left: 6px; }
+
+.tfm-products {
+  max-height: 220px; overflow-y: auto;
+  border: 1.5px solid #e8dcc8; border-radius: 10px;
+  padding: 10px 12px; background: #fdfaf5;
+  display: flex; flex-direction: column; gap: 12px;
+}
+
+.tfm-cat-block { display: flex; flex-direction: column; gap: 6px; }
+.tfm-cat-head  { display: flex; align-items: center; justify-content: space-between; }
+.tfm-cat-label { font-size: 11.5px; font-weight: 600; color: #5a4030; }
+.tfm-cat-all   { font-size: 11px; color: #c08020; background: none; border: none; padding: 0; }
+.tfm-cat-all:hover { text-decoration: underline; }
+
+.tfm-product-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+.tfm-product-chip {
+  display: flex; align-items: center; gap: 5px;
+  padding: 5px 10px; border-radius: 999px;
+  font-size: 12px; color: #7a6850;
+  background: #f0e8d8; border: 1px solid #c8b89a;
+  cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.tfm-product-chip input { margin: 0; }
+.tfm-product-chip:hover { background: #e8dcc8; }
+.tfm-product-chip--active {
+  background: #fde8c0; color: #8a6020; border-color: #e8c888; font-weight: 500;
+}
+
+.tfm-products-empty { font-size: 11.5px; color: #9a8868; }
+.tfm-selected-count { font-size: 11px; color: #9a8868; margin-top: 2px; }
 
 .tfm-error {
   font-size: 12px;

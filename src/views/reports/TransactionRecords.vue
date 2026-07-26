@@ -29,6 +29,9 @@
     <div class="tr__summary">
       <span>共 <strong>{{ filtered.length }}</strong> 筆</span>
       <span>合計 <strong>${{ fmtNum(sumTotal) }}</strong></span>
+      <span v-if="unpaidList.length" class="tr__unpaid-summary">
+        未收款 {{ unpaidList.length }} 筆 <strong>${{ fmtNum(sumUnpaid) }}</strong>（未計入合計）
+      </span>
     </div>
 
     <!-- 交易表格 -->
@@ -83,7 +86,11 @@
               </td>
               <td class="tr__td tr__td--num tr__td--total">${{ fmtNum(order.total) }}</td>
               <td class="tr__td">
-                <span v-if="order.payment_method" class="tr__pay-badge">{{ order.payment_method }}</span>
+                <span
+                  v-if="order.payment_method"
+                  class="tr__pay-badge"
+                  :class="{ 'tr__pay-badge--unpaid': isUnpaidOrder(order) }"
+                >{{ order.payment_method }}</span>
                 <span v-else class="tr__td--muted">—</span>
               </td>
               <!-- 後4碼 -->
@@ -339,6 +346,7 @@ import { useReportsStore } from '@/stores/reportsStore.js'
 import { supabase } from '@/lib/supabase.js'
 import { useAuthStore } from '@/stores/authStore.js'
 import { printInvoiceReceipt } from '@/lib/printer.js'
+import { isUnpaidOrder } from '@/lib/orderPayment.js'
 
 const reportsStore = useReportsStore()
 const authStore    = useAuthStore()
@@ -419,7 +427,13 @@ const filtered = computed(() => {
   return reportsStore.orders.filter(o => o.orderType === typeFilter.value)
 })
 
-const sumTotal = computed(() => filtered.value.reduce((s, o) => s + (o.total ?? 0), 0))
+// 合計只算真的收到錢的；「稍後付款」的單仍然列在清單上（店家要追款），
+// 但不計入合計，另外用未收款金額標示出來。
+const sumTotal = computed(() =>
+  filtered.value.filter(o => !isUnpaidOrder(o)).reduce((s, o) => s + (o.total ?? 0), 0)
+)
+const unpaidList  = computed(() => filtered.value.filter(o => isUnpaidOrder(o)))
+const sumUnpaid   = computed(() => unpaidList.value.reduce((s, o) => s + (o.total ?? 0), 0))
 
 function fmtNum(n) { return Math.round(n ?? 0).toLocaleString('zh-TW') }
 
@@ -687,6 +701,8 @@ async function doDeleteOrder() {
 .tr__type-badge--dinein   { background: #e8f3e8; color: #3a6a3a; }
 .tr__type-badge--delivery { background: #d0f0e0; color: #1a6035; }
 .tr__pay-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #eef4ff; color: #1a5080; font-weight: 500; }
+.tr__pay-badge--unpaid { background: #fff2dc; color: #a05f10; }
+.tr__unpaid-summary { font-size: 12.5px; color: #c07818; }
 .tr__carrier-badge { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: #e8f0fe; color: #1a56b0; font-family: monospace; }
 .tr__taxid-badge  { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: #fde8c0; color: #8a6020; font-family: monospace; }
 .tr__invoice-num  { font-size: 12px; color: #2a6a3a; font-family: monospace; font-weight: 600; }

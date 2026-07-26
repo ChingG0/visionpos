@@ -156,7 +156,8 @@ onMounted(() => applyPreset('today'))
 
 /* ── 資料計算 ── */
 // 標籤功能目前只有外帶、內用會用到（外送標籤資料由 Uber Eats 提供，尚未整合進來）
-const eligibleOrders = computed(() => reportsStore.orders.filter(o => o.orderType === 'takeout' || o.orderType === 'dine-in'))
+// 排除「稍後付款」的未收款訂單，標籤金額統計只算真的收到錢的
+const eligibleOrders = computed(() => reportsStore.paidOrders.filter(o => o.orderType === 'takeout' || o.orderType === 'dine-in'))
 const taggedOrders   = computed(() => eligibleOrders.value.filter(o => o.tags?.length > 0))
 const taggedPct      = computed(() =>
   eligibleOrders.value.length ? (taggedOrders.value.length / eligibleOrders.value.length * 100).toFixed(1) : '0.0'

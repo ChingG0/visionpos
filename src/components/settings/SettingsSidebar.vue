@@ -35,8 +35,28 @@
 
       <!-- 其他後台導覽 -->
       <template v-for="item in otherNavItems" :key="item.id">
+        <!-- 商品管理：可展開 -->
+        <div v-if="item.isProduct" class="ss__group">
+          <button
+            class="ss__nav-item"
+            :class="{ 'ss__nav-item--active': route.name === 'ProductManagement' }"
+            @click="handleProductClick"
+          >
+            <component :is="item.icon" class="ss__nav-icon" />
+            <span>{{ item.label }}</span>
+          </button>
+          <div v-if="productExpanded" class="ss__sub-nav">
+            <button
+              v-for="sub in PRODUCT_PAGES"
+              :key="sub.key"
+              class="ss__sub-item"
+              :class="{ 'ss__sub-item--active': isActiveProductPage(sub.key) }"
+              @click="goProductPage(sub.key)"
+            >{{ sub.label }}</button>
+          </div>
+        </div>
         <!-- 設備管理：可展開 -->
-        <div v-if="item.isDevice" class="ss__group">
+        <div v-else-if="item.isDevice" class="ss__group">
           <button
             class="ss__nav-item"
             :class="{ 'ss__nav-item--active': route.name === 'DeviceManagement' }"
@@ -96,6 +116,7 @@ const REPORT_PAGES = [
   { key: 'tags',         label: '標籤分析' },
   { key: 'discounts',    label: '折扣分析' },
   { key: 'customers',    label: '來客分析' },
+  { key: 'shifts',       label: '交班紀錄' },
 ]
 
 const reportsExpanded = ref(route.name === 'Reports')
@@ -125,6 +146,35 @@ function isActiveReportPage(key) {
   if (route.name !== 'Reports') return false
   const current = route.query.page || 'revenue'
   return current === key
+}
+
+/* ── 商品管理子分頁 ── */
+const PRODUCT_PAGES = [
+  { key: 'products', label: '商品總覽' },
+  { key: 'tags',     label: '標籤管理' },
+]
+
+const productExpanded = ref(route.name === 'ProductManagement')
+
+watch(() => route.name, (name) => {
+  if (name === 'ProductManagement') productExpanded.value = true
+}, { immediate: true })
+
+function handleProductClick() {
+  if (route.name === 'ProductManagement') {
+    productExpanded.value = !productExpanded.value
+  } else {
+    productExpanded.value = true
+    router.push({ name: 'ProductManagement', query: { page: 'products' } })
+  }
+}
+
+function goProductPage(key) {
+  router.push({ name: 'ProductManagement', query: { page: key } })
+}
+
+function isActiveProductPage(key) {
+  return route.name === 'ProductManagement' && (route.query.page || 'products') === key
 }
 
 /* ── 設備管理子分頁 ── */
@@ -232,17 +282,28 @@ const IconLinePay = defineComponent({
   ])
 })
 
+/* 店家資訊：店面＋時鐘 */
+const IconStoreInfo = defineComponent({
+  render: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
+    h('path', { d: 'M3 9l2-5h14l2 5' }),
+    h('path', { d: 'M4 9v11h16V9' }),
+    h('circle', { cx: '12', cy: '14', r: '3.2' }),
+    h('path', { d: 'M12 12.6V14l1 1' }),
+  ])
+})
+
 import { computed } from 'vue'
 
 const ALL_NAV_ITEMS = [
-  { id: 'ProductManagement', label: '商品管理', icon: IconProducts,      roles: ['owner', 'manager', 'superadmin'] },
+  { id: 'ProductManagement', label: '商品管理', icon: IconProducts,      roles: ['owner', 'manager', 'superadmin'], isProduct: true },
   { id: 'OrderSettings',     label: '點餐設定', icon: IconOrderSettings, roles: ['owner', 'manager', 'superadmin', 'cashier'] },
   { id: 'Inventory',         label: '庫存管理', icon: IconInventory,     roles: ['owner', 'manager', 'superadmin'] },
   { id: 'MemberManagement',  label: '會員管理', icon: IconMembers,       roles: ['owner', 'manager', 'superadmin'] },
   { id: 'StaffManagement',   label: '員工管理', icon: IconStaff,         roles: ['owner', 'manager', 'superadmin'] },
   { id: 'DeviceManagement',  label: '設備管理', icon: IconDevice,        roles: ['owner', 'manager', 'superadmin', 'cashier'], isDevice: true },
   { id: 'InvoiceSettings',   label: '電子發票',   icon: IconInvoice,       roles: ['owner', 'manager', 'superadmin'] },
-  { id: 'PaymentSettings', label: '付款設定', icon: IconLinePay, roles: ['owner', 'manager', 'superadmin'] }
+  { id: 'PaymentSettings', label: '付款設定', icon: IconLinePay, roles: ['owner', 'manager', 'superadmin'] },
+  { id: 'StoreInfo',       label: '店家資訊', icon: IconStoreInfo, roles: ['owner', 'manager', 'superadmin'] },
 ]
 
 const otherNavItems = computed(() => {

@@ -81,6 +81,43 @@
             </p>
           </div>
 
+          <div class="pfm-field">
+            <label class="pfm-label">
+              出餐工作站
+              <span class="pfm-tax-hint">可複選，用於後台「工作站」頁面分類顯示與出單分區列印</span>
+            </label>
+            <div class="pfm-station-row">
+              <label
+                v-for="st in KITCHEN_STATIONS" :key="st.id"
+                class="pfm-station-chip"
+                :class="{ 'pfm-station-chip--active': form.stations.includes(st.id) }"
+              >
+                <input type="checkbox" :value="st.id" v-model="form.stations" />
+                {{ st.label }}
+              </label>
+            </div>
+          </div>
+
+          <div class="pfm-field">
+            <label class="pfm-label">
+              常用標籤
+              <span class="pfm-tax-hint">可複選，點餐時點這個商品的備註視窗會優先顯示這些標籤</span>
+            </label>
+            <div v-if="tagStore.tags.length === 0" class="pfm-tag-empty">
+              尚未建立標籤，可到「點餐設定」新增
+            </div>
+            <div v-else class="pfm-station-row">
+              <label
+                v-for="tag in tagStore.tags" :key="tag.id"
+                class="pfm-station-chip"
+                :class="{ 'pfm-station-chip--active': form.tagIds.includes(tag.id) }"
+              >
+                <input type="checkbox" :value="tag.id" v-model="form.tagIds" />
+                {{ tag.label }}
+              </label>
+            </div>
+          </div>
+
           <!-- ── 使用食材（庫存扣料） ── -->
           <div class="pfm-recipe">
             <div class="pfm-recipe-header">
@@ -147,8 +184,11 @@ import { reactive, ref, computed, watch, onMounted } from 'vue'
 import { useInventoryStore } from '@/stores/inventoryStore.js'
 import { useMenuStore } from '@/stores/menuStore.js'
 import { supabase } from '@/lib/supabase.js'
+import { KITCHEN_STATIONS } from '@/constants/kitchenStations.js'
+import { useTagStore } from '@/stores/tagStore.js'
 
 const menuStore = useMenuStore()
+const tagStore  = useTagStore()
 
 const props = defineProps({
   categories:  { type: Array,  required: true },
@@ -168,6 +208,8 @@ const form = reactive({
   price:      props.initialData?.price ?? 0,
   icon:       props.initialData?.icon ?? '🍽️',
   taxType:    props.initialData?.taxType ?? 'taxable',
+  stations:   props.initialData?.stations ? [...props.initialData.stations] : [],
+  tagIds:     props.initialData?.tagIds   ? [...props.initialData.tagIds]   : [],
 })
 
 /* ── 新增商品分類 ── */
@@ -230,6 +272,7 @@ function onIngredientSelect(i) {
 
 /* ── 載入現有配方（編輯模式）── */
 onMounted(async () => {
+  await tagStore.init()
   await inventoryStore.fetchIngredients()
   if (!isEdit || !props.initialData?.id) return
   recipeLoading.value = true
@@ -259,6 +302,8 @@ function submit() {
     price:      Number(form.price),
     icon:       form.icon.trim() || '🍽️',
     taxType:    form.taxType,
+    stations:   form.stations,
+    tagIds:     form.tagIds,
     /* recipes 供 ProductManagementView 存入 product_ingredient_recipes */
     recipes:    recipes.value.filter(r => r.ingredientId && r.qty > 0),
   })
@@ -390,6 +435,22 @@ function submit() {
 }
 
 .pfm-tax-hint { font-size: 10.5px; color: var(--color-text-muted); font-weight: 400; }
+
+/* ── 出餐工作站 ── */
+.pfm-station-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.pfm-station-chip {
+  display: flex; align-items: center; gap: 5px;
+  padding: 6px 12px; border-radius: 999px;
+  font-size: 12.5px; color: #7a6850;
+  background: #f0e8d8; border: 1px solid #c8b89a;
+  cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.pfm-station-chip input { margin: 0; }
+.pfm-station-chip:hover { background: #e8dcc8; }
+.pfm-station-chip--active {
+  background: #fde8c0; color: #8a6020; border-color: #e8c888; font-weight: 500;
+}
+.pfm-tag-empty { font-size: 11.5px; color: var(--color-text-muted); }
 .pfm-tax-warning {
   font-size: 11px; color: #8a6020; background: #fff8ee;
   border: 1px solid #e8d090; border-radius: 8px; padding: 6px 10px;

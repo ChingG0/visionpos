@@ -16,6 +16,14 @@
       </div>
     </Transition>
 
+    <!-- 新版本偵測：後台部署新版本後，自動通知並倒數重新整理 -->
+    <Transition name="banner">
+      <div v-if="updateAvailable" class="version-update-banner">
+        <span>🔄 系統有新版本，{{ countdown }} 秒後自動更新...</span>
+        <button class="version-update-btn" @click="reloadNow">立即更新</button>
+      </div>
+    </Transition>
+
     <Transition name="loading-fade">
       <div v-if="isLoading && authStore.isLoggedIn" class="app-loading">
         <div class="app-loading__bg" />
@@ -59,6 +67,7 @@ import { getPrinterLogo }      from '@/lib/printer.js'
 import { useHeartbeat }        from '@/composables/useHeartbeat.js'
 import { useOffline }          from '@/composables/useOffline.js'
 import { useInvoiceBootCheck } from '@/composables/useInvoiceBootCheck.js'
+import { useVersionCheck }     from '@/composables/useVersionCheck.js'
 
 const menuStore        = useMenuStore()
 const reservationStore = useReservationStore()
@@ -69,6 +78,7 @@ const authStore        = useAuthStore()
 const { startHeartbeat } = useHeartbeat()
 const { isOffline, showBanner } = useOffline()
 const { runBootCheck }  = useInvoiceBootCheck()
+const { updateAvailable, countdown, startVersionCheck, reloadNow } = useVersionCheck()
 
 const logoSrc   = ref('')
 const isLoading = computed(() =>
@@ -82,6 +92,7 @@ const bootCheckFailDetail = ref('')
 onMounted(() => {
   authStore.restore()
   logoSrc.value = getPrinterLogo()
+  startVersionCheck()  // 不論有沒有登入都要檢查，登入畫面停在舊版本一樣要更新
 
   if (authStore.isLoggedIn) {
     menuStore.init()
@@ -154,6 +165,33 @@ onMounted(() => {
   letter-spacing: 0.3px;
   cursor: pointer;
 }
+
+.version-update-banner {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 100000;
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  background: #2f6a3d;
+  color: #fff;
+  letter-spacing: 0.3px;
+}
+.version-update-btn {
+  padding: 4px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #2f6a3d;
+  background: #fff;
+  border: none;
+  cursor: pointer;
+}
+.version-update-btn:hover { background: #eef8ee; }
 
 .app-loading {
   position: absolute; inset: 0; z-index: 9999;

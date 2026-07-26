@@ -3,7 +3,8 @@
 
     <!-- Header: 內用 / 外帶 切換 -->
     <div class="ocp__header">
-      <div class="ocp__order-type">
+      <div v-if="editMode" class="ocp__edit-badge">✎ 修改訂單中</div>
+      <div v-else class="ocp__order-type">
         <button
           class="ocp__type-btn"
           :class="{ 'ocp__type-btn--active': orderType === 'dine-in' }"
@@ -33,7 +34,7 @@
     <div v-if="orderType === 'dine-in'" class="ocp__table-row">
       <span v-if="tableName" class="ocp__table-chip">
         🍽 {{ tableName }}
-        <button class="ocp__table-clear" aria-label="重選桌號" @click="emit('change-table')">×</button>
+        <button v-if="!editMode" class="ocp__table-clear" aria-label="重選桌號" @click="emit('change-table')">×</button>
       </span>
       <button v-else class="ocp__table-pick-btn" @click="emit('change-table')">選擇桌號</button>
     </div>
@@ -63,9 +64,10 @@
       <p v-if="cartItems.length === 0" class="ocp__empty">點選左側餐點開始點餐</p>
 
       <div v-for="line in cartItems" :key="line.id" class="ocp__line">
-        <span class="ocp__line-icon">{{ line.icon }}</span>
+        <!-- 點擊品項空白處 → 開單品備註視窗（快速選標籤 / 手輸備註） -->
+        <span class="ocp__line-icon ocp__line-tappable" @click="emit('edit-line', line.id)">{{ line.icon }}</span>
 
-        <div class="ocp__line-info">
+        <div class="ocp__line-info ocp__line-tappable" @click="emit('edit-line', line.id)">
           <p class="ocp__line-name">{{ line.name }}</p>
           <p class="ocp__line-unit">${{ line.price.toFixed(2) }}</p>
         </div>
@@ -76,9 +78,19 @@
           <button class="ocp__qty-btn" @click="emit('increase', line.id)">＋</button>
         </div>
 
-        <span class="ocp__line-total">${{ (line.price * line.qty).toFixed(2) }}</span>
+        <span class="ocp__line-total ocp__line-tappable" @click="emit('edit-line', line.id)">${{ (line.price * line.qty).toFixed(2) }}</span>
 
         <button class="ocp__line-remove" aria-label="移除" @click="emit('remove', line.id)">×</button>
+
+        <!-- 單品標籤 / 備註 -->
+        <div v-if="line.tags?.length || line.note" class="ocp__line-extras ocp__line-tappable" @click="emit('edit-line', line.id)">
+          <span
+            v-for="tag in line.tags" :key="tag.id"
+            class="ocp__line-tag"
+            :style="{ background: tagColorOf(tag).bg, color: tagColorOf(tag).text }"
+          >{{ tag.label }}</span>
+          <span v-if="line.note" class="ocp__line-note">📝 {{ line.note }}</span>
+        </div>
       </div>
 
       <!-- 整單備註 / 標籤摘要 -->
@@ -116,10 +128,13 @@
 
       <button
         class="ocp__charge-btn"
+        :class="{ 'ocp__charge-btn--edit': editMode }"
         :disabled="cartItems.length === 0"
         @click="emit('charge')"
       >
-        {{ orderType === 'dine-in' && !tableName ? '結帳（請先選桌號）' : `結帳　$${total.toFixed(0)}` }}
+        {{ editMode
+          ? `儲存修改　$${total.toFixed(0)}`
+          : (orderType === 'dine-in' && !tableName ? '結帳（請先選桌號）' : `結帳　$${total.toFixed(0)}`) }}
       </button>
     </div>
 
@@ -140,10 +155,12 @@ const props = defineProps({
   tableName:     { type: String, default: '' },
   customerName:  { type: String, default: '' },
   customerPhone: { type: String, default: '' },
+  // 修改既有訂單模式：按鈕文字改成「儲存修改」，內用/外帶切換與桌號改選都鎖住
+  editMode:      { type: Boolean, default: false },
 })
 
 const emit = defineEmits([
-  'increase', 'decrease', 'remove', 'clear', 'charge',
+  'increase', 'decrease', 'remove', 'clear', 'charge', 'edit-line',
   'update:orderType', 'change-table',
   'update:customerName', 'update:customerPhone',
 ])
@@ -326,7 +343,7 @@ function tagColorOf(tag) {
 .ocp__line {
   display: grid;
   grid-template-columns: 32px 1fr auto;
-  grid-template-rows: auto auto;
+  grid-template-rows: auto auto auto;
   column-gap: 10px;
   row-gap: 4px;
   position: relative;
@@ -414,6 +431,36 @@ function tagColorOf(tag) {
 
 .ocp__line-remove:hover { background: #f0c0b8; }
 
+/* 可點擊區域（開單品備註視窗） */
+.ocp__line-tappable { cursor: pointer; }
+.ocp__line:hover .ocp__line-name { color: #b8631f; }
+
+/* 單品標籤 / 備註 */
+.ocp__line-extras {
+  grid-column: 2 / 4;
+  grid-row: 3;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.ocp__line-tag {
+  font-size: 10.5px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.ocp__line-note {
+  font-size: 10.5px;
+  color: var(--color-text-secondary);
+  background: #faf5ec;
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+
 /* ── 整單備註 / 標籤摘要 ── */
 .ocp__note-block {
   padding-top: 4px;
@@ -492,5 +539,18 @@ function tagColorOf(tag) {
 .ocp__charge-btn:disabled {
   background: #d8c8c0;
   cursor: not-allowed;
+}
+
+.ocp__charge-btn--edit { background: #3a7a3a; }
+.ocp__charge-btn--edit:hover:not(:disabled) { background: #2a6a2a; }
+
+.ocp__edit-badge {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #8a6020;
+  background: #fde8c0;
+  border: 1px solid #e8c888;
+  padding: 5px 12px;
+  border-radius: 999px;
 }
 </style>

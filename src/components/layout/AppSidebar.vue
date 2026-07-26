@@ -127,13 +127,33 @@ const IconReservation = defineComponent({
   ])
 })
 
+/* 工作站：出餐/廚房圖示（鍋鏟＋盤子） */
+const IconKitchenStation = defineComponent({
+  render: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
+    h('circle', { cx: '12', cy: '11', r: '7.5' }),
+    h('path', { d: 'M12 7v4l2.6 1.6' }),
+    h('path', { d: 'M8 21h8' }),
+  ])
+})
+
+/* 雜項收支：收據／記帳圖示 */
+const IconMisc = defineComponent({
+  render: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
+    h('path', { d: 'M6 2h12v20l-3-2-3 2-3-2-3 2V2z' }),
+    h('line', { x1: '9.5', y1: '8',  x2: '14.5', y2: '8'  }),
+    h('line', { x1: '9.5', y1: '12', x2: '14.5', y2: '12' }),
+  ])
+})
+
 /* id 要對應 router/index.js 裡的 route name */
 const navItems = [
-  { id: 'NewOrder',    label: '新訂單', icon: IconNewOrder },
-  { id: 'DineIn',      label: '內用',   icon: IconDineIn },
-  { id: 'Takeout',     label: '外帶',   icon: IconTakeout },
-  { id: 'Delivery',    label: '外送',   icon: IconDelivery },
-  { id: 'Reservation', label: '預約',   icon: IconReservation },
+  { id: 'NewOrder',       label: '新訂單',  icon: IconNewOrder },
+  { id: 'DineIn',         label: '內用',    icon: IconDineIn },
+  { id: 'Takeout',        label: '外帶',    icon: IconTakeout },
+  { id: 'Delivery',       label: '外送',    icon: IconDelivery },
+  { id: 'Reservation',    label: '預約',    icon: IconReservation },
+  { id: 'KitchenStation', label: '工作站',  icon: IconKitchenStation },
+  { id: 'MiscTransactions', label: '雜項收支', icon: IconMisc },
 ]
 </script>
 

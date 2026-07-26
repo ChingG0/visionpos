@@ -51,7 +51,7 @@
               </div>
 
               <div class="tk__card-actions">
-                <button class="tk__done-btn" @click="confirmComplete(order)">完成<br>取餐</button>
+                <button v-if="!isUnpaid(order)" class="tk__done-btn" @click="confirmComplete(order)">完成<br>取餐</button>
                 <button class="tk__print-btn" :disabled="printingId === order.id" @click="handlePrint(order)" title="補印收據">
                   <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M5 7V2h10v5"/><path d="M5 14H2V7h16v7h-3"/><path d="M5 14v4h10v-4"/>
@@ -72,6 +72,12 @@
               <span class="tk__card-total">${{ order.total.toFixed(0) }}</span>
             </div>
 
+            <!-- 稍後付款：結完帳才會出現「完成取餐」（有些客人是內用後加點外帶，餐後才一起結帳）-->
+            <div v-if="isUnpaid(order)" class="tk__payment-row">
+              <span class="tk__payment-badge">⏳ 稍後付款，結帳後才能完成取餐</span>
+              <button class="tk__checkout-btn" @click="openCheckout(order)">結帳</button>
+            </div>
+
             <!-- 品項表格 -->
             <div class="tk__items-wrap">
               <table class="tk__items">
@@ -86,7 +92,7 @@
                 <tbody>
                   <tr v-for="(line, i) in order.items" :key="i">
                     <td>{{ line.name }}</td>
-                    <td class="tk__items-note-cell">－</td>
+                    <td class="tk__items-note-cell">{{ lineExtraText(line) || '－' }}</td>
                     <td>{{ line.qty }}</td>
                     <td>{{ (line.price * line.qty).toFixed(0) }}</td>
                   </tr>
@@ -136,6 +142,20 @@
       </div>
     </Teleport>
 
+    <!-- 稍後付款訂單結帳：收款（結帳畫面裡就能直接調整折扣）-->
+    <PaymentModal
+      v-if="checkoutTarget"
+      :total="checkoutTarget.total ?? 0"
+      :allow-defer="false"
+      :allow-discount-edit="true"
+      :subtotal="checkoutTarget.subtotal ?? 0"
+      :surcharge-amount="checkoutTarget.surcharge?.amount ?? 0"
+      :discount="checkoutTarget.discount ?? null"
+      @close="checkoutTarget = null"
+      @update:discount="handleSaveDiscount"
+      @paid="handleCheckoutPaid"
+    />
+
   </div>
 </template>
 
@@ -147,12 +167,68 @@ import { useTakeoutStore } from '@/stores/takeoutStore.js'
 import { useMemberStore }  from '@/stores/memberStore.js'
 import { TAG_COLOR_MAP }   from '@/constants/tagColors.js'
 import { printOrderReceipt } from '@/lib/printer.js'
+import PaymentModal        from '@/components/order/PaymentModal.vue'
 
 const takeoutStore = useTakeoutStore()
 const memberStore  = useMemberStore()
 
+/* ── 稍後付款：判斷 + 結帳收款（折扣在 PaymentModal 收款畫面裡直接調整）── */
+function isUnpaid(order) {
+  return !order.paymentMethod || order.paymentMethod === '稍後付款'
+}
+
+async function handleSaveDiscount(newDiscount) {
+  const order = checkoutTarget.value
+  if (!order) return
+  const base = (order.subtotal ?? 0) + (order.surcharge?.amount ?? 0)
+  const discountAmount = newDiscount?.value
+    ? (newDiscount.type === 'percent' ? Math.round(base * newDiscount.value / 100) : Math.min(newDiscount.value, base))
+    : 0
+  const newTotal = Math.max(0, base - discountAmount)
+  await takeoutStore.updateOrderDiscount(order.id, newDiscount, newTotal)
+  checkoutTarget.value = { ...order, discount: newDiscount, total: newTotal }
+}
+
+const checkoutTarget = ref(null)
+const checkingOut    = ref(false)
+function openCheckout(order) { checkoutTarget.value = order }
+
+async function handleCheckoutPaid({ methodLabel, paymentAmount, changeAmount, card4, carrierNum, buyerTaxId }) {
+  if (checkingOut.value) return
+  const order = checkoutTarget.value
+  checkoutTarget.value = null
+  if (!order) return
+  checkingOut.value = true
+  await takeoutStore.markOrderPaid(order.id, { methodLabel, paymentAmount, changeAmount, card4, carrierNum, buyerTaxId })
+  await issueInvoiceIfEnabled({ orderId: order.id, items: order.items, total: order.total, carrierNum, buyerTaxId })
+  checkingOut.value = false
+}
+
+/* 稍後付款訂單真正收到款項時才開票（跟內用 SeatOrderModal 同一套邏輯），
+ * 有啟用電子發票才開，fire-and-forget 不阻擋結帳流程。 */
+async function issueInvoiceIfEnabled({ orderId, items, total, carrierNum, buyerTaxId }) {
+  if (!orderId) return
+  try {
+    const { useInvoice } = await import('@/composables/useInvoice.js')
+    const { isInvoiceEnabled, issueInvoice } = useInvoice()
+    if (!(await isInvoiceEnabled())) return
+    const res = await issueInvoice({ id: orderId, orderType: 'takeout', items, total, buyerTaxId, carrierNum })
+    if (res?.warning) console.warn('[invoice]', res.warning)
+  } catch (e) {
+    console.error('[invoice] 外帶稍後付款結帳開票失敗', e)
+  }
+}
+
 function tagColorOf(tag) {
   return TAG_COLOR_MAP[tag.color] ?? TAG_COLOR_MAP.gray
+}
+
+/* 單品標籤 + 手輸備註，合併成表格「備註」欄要顯示的文字 */
+function lineExtraText(line) {
+  const parts = []
+  if (line.tags?.length) parts.push(line.tags.map(t => t.label).join('、'))
+  if (line.note)         parts.push(line.note)
+  return parts.join('　')
 }
 
 /* ── 補印 ── */
@@ -473,6 +549,22 @@ function formatOrderId(order) {
   font-weight: 600;
   color: var(--color-text-primary);
 }
+
+/* ── 稍後付款列 ── */
+.tk__payment-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 0; margin-top: 2px;
+  border-bottom: 1px dashed #ede5d0;
+}
+.tk__payment-badge {
+  font-size: 12px; font-weight: 500; color: #e07020;
+}
+.tk__checkout-btn {
+  font-size: 12px; font-weight: 600; color: #fff;
+  background: #e07020; border: none;
+  padding: 5px 14px; border-radius: 999px;
+}
+.tk__checkout-btn:hover { background: #c06010; }
 
 .tk__items-wrap {
   flex: 1;

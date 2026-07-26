@@ -5,6 +5,11 @@
     <div class="pm__main">
       <AppTopbar :show-floor-tabs="false" title="" />
 
+      <!-- 標籤管理子分頁 -->
+      <TagManagementPage v-if="currentPage === 'tags'" />
+
+      <!-- 商品總覽子分頁 -->
+      <template v-else>
       <!-- Action row -->
       <div class="pm__action-row">
         <div class="pm__action-left">
@@ -14,6 +19,11 @@
             :disabled="selectedIds.length === 0"
             @click="handleDuplicate"
           >複製商品</button>
+          <button
+            class="pm__btn pm__btn--danger"
+            :disabled="selectedIds.length === 0"
+            @click="showDeleteConfirm = true"
+          >刪除商品{{ selectedIds.length ? `（${selectedIds.length}）` : '' }}</button>
         </div>
         <button class="pm__btn" @click="exportCsv">匯出商品</button>
       </div>
@@ -64,27 +74,55 @@
           </tbody>
         </table>
       </div>
+      </template>
 
     </div>
 
     <ProductFormModal
-      v-if="showModal"
+      v-if="showModal && currentPage !== 'tags'"
       :categories="menuStore.categories"
       :initial-data="editingItem"
       @close="showModal = false"
       @submit="handleSubmit"
     />
+
+    <!-- 刪除商品確認 -->
+    <Teleport to="body">
+      <div v-if="showDeleteConfirm" class="pm-confirm-backdrop" @click.self="closeDeleteConfirm">
+        <div class="pm-confirm-box">
+          <p class="pm-confirm-title">確認刪除 {{ selectedIds.length }} 項商品？</p>
+          <div class="pm-confirm-list">
+            <span v-for="name in selectedNames" :key="name" class="pm-confirm-item">{{ name }}</span>
+          </div>
+          <p class="pm-confirm-hint">
+            商品會從菜單永久移除，連同它的食材配方一起刪除。<br>
+            已成立的訂單與報表紀錄不受影響（歷史訂單存的是當下的品項快照）。
+          </p>
+          <p v-if="deleteError" class="pm-confirm-error">{{ deleteError }}</p>
+          <div class="pm-confirm-actions">
+            <button class="pm-confirm-cancel" @click="closeDeleteConfirm">取消</button>
+            <button class="pm-confirm-ok" :disabled="deleting" @click="handleDelete">
+              {{ deleting ? '刪除中...' : '確認刪除' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
 import { ref, computed } from 'vue'
+import { useRoute }      from 'vue-router'
 import SettingsSidebar  from '@/components/settings/SettingsSidebar.vue'
 import AppTopbar          from '@/components/layout/AppTopbar.vue'
 import ProductFormModal  from '@/components/settings/ProductFormModal.vue'
+import TagManagementPage from '@/views/settings/TagManagementPage.vue'
 import { useMenuStore }  from '@/stores/menuStore.js'
 
 const menuStore = useMenuStore()
+const route     = useRoute()
+const currentPage = computed(() => route.query.page || 'products')
 
 /* ── 表格排序：依商品編號 ── */
 const sortedItems = computed(() =>
@@ -157,6 +195,31 @@ function handleDuplicate() {
   selectedIds.value = []
 }
 
+/* ── 刪除商品（多選批次刪除）── */
+const showDeleteConfirm = ref(false)
+const deleting          = ref(false)
+const deleteError       = ref('')
+
+const selectedNames = computed(() =>
+  menuStore.items.filter(i => selectedIds.value.includes(i.id)).map(i => i.name)
+)
+
+function closeDeleteConfirm() {
+  showDeleteConfirm.value = false
+  deleteError.value = ''
+}
+
+async function handleDelete() {
+  if (selectedIds.value.length === 0 || deleting.value) return
+  deleting.value = true
+  deleteError.value = ''
+  const ok = await menuStore.deleteItems([...selectedIds.value])
+  deleting.value = false
+  if (!ok) { deleteError.value = '刪除失敗，請稍後再試'; return }
+  selectedIds.value = []
+  closeDeleteConfirm()
+}
+
 /* ── 匯出 CSV ── */
 function exportCsv() {
   const header = ['商品編號', '商品名稱', '成本', '售價', '商品分類', '商品狀態']
@@ -227,6 +290,58 @@ function exportCsv() {
 }
 
 .pm__btn--primary:hover { background: #dc9530; }
+
+.pm__btn--danger {
+  color: #c0392b;
+  background: #fff0ee;
+  border-color: #f0c0b8;
+}
+.pm__btn--danger:hover:not(:disabled) { background: #fde0dc; }
+
+/* ── 刪除確認彈窗 ── */
+.pm-confirm-backdrop {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45);
+  display: flex; align-items: center; justify-content: center; z-index: 9999;
+}
+.pm-confirm-box {
+  background: #fff; border-radius: 16px; width: 380px; padding: 20px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
+  font-family: 'Noto Sans TC', 'PingFang TC', sans-serif;
+}
+.pm-confirm-title { font-size: 16px; font-weight: 600; color: #c0392b; margin-bottom: 12px; }
+.pm-confirm-list {
+  display: flex; flex-wrap: wrap; gap: 5px;
+  max-height: 140px; overflow-y: auto;
+  background: #faf5ec; border-radius: 10px; padding: 10px 12px; margin-bottom: 10px;
+}
+.pm-confirm-item {
+  font-size: 12px; color: #5a4030;
+  background: #fff; border: 1px solid #e8dcc8;
+  padding: 3px 10px; border-radius: 999px;
+}
+.pm-confirm-hint {
+  font-size: 11.5px; color: #8a6020; background: #fff8ee;
+  border: 1px solid #e8d090; border-radius: 8px;
+  padding: 8px 10px; line-height: 1.6; margin-bottom: 12px;
+}
+.pm-confirm-error {
+  font-size: 12px; color: #c03020; background: #fff0ee;
+  border: 1px solid #f0c0b8; border-radius: 8px;
+  padding: 6px 10px; margin-bottom: 10px;
+}
+.pm-confirm-actions { display: flex; gap: 8px; }
+.pm-confirm-cancel {
+  flex: 1; padding: 10px; border-radius: 10px; font-size: 13px;
+  color: #7a6850; background: #f0e8d8; border: 1px solid #c8b89a;
+}
+.pm-confirm-cancel:hover { background: #e8dcc8; }
+.pm-confirm-ok {
+  flex: 2; padding: 10px; border-radius: 10px;
+  font-size: 14px; font-weight: 600; color: #fff;
+  background: #c0392b; border: none; transition: background 0.15s;
+}
+.pm-confirm-ok:hover:not(:disabled) { background: #a93226; }
+.pm-confirm-ok:disabled { opacity: 0.6; }
 
 /* ── Table ── */
 .pm__table-wrap {

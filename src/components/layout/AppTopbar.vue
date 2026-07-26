@@ -21,7 +21,8 @@
       <div v-if="authStore.isLoggedIn" class="topbar__user">
         <span class="topbar__store-name">{{ authStore.store?.name }}</span>
         <span class="topbar__user-name">{{ authStore.user?.name }}</span>
-        <button class="topbar__logout-btn" @click="handleLogout">登出</button>
+        <button class="topbar__shift-btn" @click="shiftKind = 'shift'">交班</button>
+        <button class="topbar__closeout-btn" @click="shiftKind = 'closeout'">關帳</button>
       </div>
 
       <!-- Status Pill -->
@@ -64,6 +65,14 @@
       @saved="pollPrinterStatus"
     />
 
+    <!-- 交班 / 關帳：確認後都會登出，差別在關帳會結束累計期間 -->
+    <ShiftModal
+      v-if="shiftKind"
+      :kind="shiftKind"
+      @close="shiftKind = null"
+      @done="handleShiftDone"
+    />
+
   </header>
 </template>
 
@@ -72,6 +81,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { checkPrinterStatus } from '@/lib/printer.js'
 import PrinterSettingsModal from './PrinterSettingsModal.vue'
+import ShiftModal           from './ShiftModal.vue'
 import { useAuthStore } from '@/stores/authStore.js'
 
 const router    = useRouter()
@@ -82,6 +92,16 @@ const ROLE_LABELS = { owner: '老闆', manager: '主管', cashier: '收銀員' }
 function handleLogout() {
   authStore.logout()
   router.replace({ name: 'Login' })
+}
+
+/* ── 交班 / 關帳 ─────────────────────────────────────────────────────────
+   兩者都會登出。交班只是留下紀錄、換人接手，累計期間繼續；
+   關帳會結束這個累計期間，下次登入營業額從 0 重新算。 */
+const shiftKind = ref(null)   // null | 'shift' | 'closeout'
+
+function handleShiftDone() {
+  shiftKind.value = null
+  handleLogout()
 }
 
 defineProps({
@@ -266,4 +286,29 @@ const formattedDateTime = computed(() => {
   white-space: nowrap;
 }
 .topbar__logout-btn:hover { background: #fde2e2; color: #c0392b; border-color: #f0c0b8; }
+
+/* ── 交班 / 關帳 ── */
+.topbar__shift-btn,
+.topbar__closeout-btn {
+  height: 24px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s;
+}
+.topbar__shift-btn {
+  border: 1px solid var(--color-border-btn);
+  background: var(--color-bg-settings);
+  color: var(--color-text-brand);
+}
+.topbar__shift-btn:hover { background: #e8dcc8; }
+.topbar__closeout-btn {
+  border: 1px solid #c8a86a;
+  background: #fde8c0;
+  color: #8a6020;
+  font-weight: 600;
+}
+.topbar__closeout-btn:hover { background: #f8dca0; }
 </style>

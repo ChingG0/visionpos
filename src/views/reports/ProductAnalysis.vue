@@ -47,7 +47,7 @@
           <button :class="{ active: sortBy === 'qty' }"     @click="sortBy = 'qty'">依數量</button>
         </div>
       </div>
-      <div v-if="reportsStore.orders.length === 0" class="pa__empty">此期間無訂單資料</div>
+      <div v-if="reportsStore.paidOrders.length === 0" class="pa__empty">此期間無訂單資料</div>
       <div v-else-if="top10.length === 0"          class="pa__empty">無商品銷售資料</div>
       <div v-else class="pa__bars">
         <div v-for="(item, i) in top10" :key="item.name" class="pa__bar-row">
@@ -146,7 +146,8 @@ onMounted(() => applyPreset('today'))
 /* ── 商品彙總 ── */
 const products = computed(() => {
   const map = {}
-  for (const order of reportsStore.orders) {
+  // 排除「稍後付款」的未收款訂單，商品銷售額只算真的收到錢的
+  for (const order of reportsStore.paidOrders) {
     for (const item of order.items ?? []) {
       if (!item.name) continue
       if (!map[item.name]) map[item.name] = { name: item.name, orderCount: 0, qty: 0, revenue: 0 }

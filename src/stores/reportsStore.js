@@ -1,12 +1,20 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { supabase } from '@/lib/supabase.js'
 import { useAuthStore } from '@/stores/authStore.js'
+import { isUnpaidOrder } from '@/lib/orderPayment.js'
 
 export const useReportsStore = defineStore('reports', () => {
   const orders  = ref([])
   const loading = ref(false)
   const error   = ref(null)
+
+  // 「稍後付款」的訂單雖然已經出餐完成，但錢還沒收到，屬於應收未收，
+  // 不能算進營收。等實際收款時 payment_method 會被改成現金/信用卡等，
+  // 那時才會被算進來。交易紀錄頁仍然要看得到這些單（店家要追款），
+  // 所以只在營收類報表改用 paidOrders。
+  const paidOrders   = computed(() => orders.value.filter(o => !isUnpaidOrder(o)))
+  const unpaidOrders = computed(() => orders.value.filter(o =>  isUnpaidOrder(o)))
 
   function getStoreId() { return useAuthStore().store?.id ?? null }
 
@@ -64,5 +72,5 @@ export const useReportsStore = defineStore('reports', () => {
     }
   }
 
-  return { orders, loading, error, fetchOrders }
+  return { orders, paidOrders, unpaidOrders, loading, error, fetchOrders }
 })

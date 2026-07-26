@@ -37,6 +37,7 @@
       @completed="handleOrderCompleted"
       @payment-done="handlePaymentDone"
       @add-order="handleAddOrder"
+      @edit-order="handleEditOrder"
     />
 
   </div>
@@ -116,6 +117,12 @@ function handleAddOrder(seat) {
   clickedSeat.value = null
   router.push({ name: 'NewOrder', query: { seatId: seat.id, seatName: seat.name } })
 }
+/* ── 修改訂單：帶著訂單 id 跳到點餐頁的修改模式 ── */
+function handleEditOrder({ seat, orderId }) {
+  clickedSeat.value = null
+  router.push({ name: 'NewOrder', query: { seatId: seat.id, seatName: seat.name, editOrderId: orderId } })
+}
+
 function handleAddReservation()     { console.log('新增訂位') }
 
 /* ── 編輯桌位完成後，重新讀取 layout ── */

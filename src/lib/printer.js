@@ -2,6 +2,7 @@ import { StarWebPrintBuilder } from './starwebprnt/StarWebPrintBuilder.js'
 import { StarWebPrintTrader }  from './starwebprnt/StarWebPrintTrader.js'
 import { supabase }            from './supabase.js'
 import { toBig5BinaryString }  from './big5.js'
+import { KITCHEN_STATIONS }    from '@/constants/kitchenStations.js'
 
 /* ═══════════════════════════════════════════════
    店家 prefix：讓每家店的 localStorage 設定獨立存
@@ -119,6 +120,14 @@ function centerTextScaled(text, totalW, scale = 1) {
   return ' '.repeat(pad) + text
 }
 
+/** 單品標籤 + 手輸備註，組成印在品名下方的那一行（沒有就回空字串）。 */
+function itemExtraLine(line) {
+  const parts = []
+  if (line.tags?.length) parts.push(line.tags.map(t => t.label).join(' '))
+  if (line.note)         parts.push(line.note)
+  return parts.join('　')
+}
+
 function sortByCode(items) {
   return [...items].sort((a, b) => {
     const ca = (a.code || '\uFFFF').toUpperCase()
@@ -232,6 +241,9 @@ async function buildReceiptRequest({
     const numAndName = `${idx + 1}. ${line.name}`
     const right      = `x${line.qty}  $${(line.price * line.qty).toFixed(0)}`
     req += builder.createTextElement(bigText(padLine(numAndName, right, LINE_W) + '\n'))
+    // 單品標籤／備註（例：少冰、不要辣），縮排印在品名下一行
+    const lineExtra = itemExtraLine(line)
+    if (lineExtra) req += builder.createTextElement(bigText(`   ${lineExtra}\n`))
   })
 
   req += builder.createRuledLineElement({ thickness: 'thin', width: DOT_W })
@@ -269,6 +281,15 @@ async function buildReceiptRequest({
 /* ═══════════════════════════════════════════════
    送出列印
 ═══════════════════════════════════════════════ */
+function sendPrintRequest(request) {
+  return new Promise((resolve) => {
+    const trader = new StarWebPrintTrader({ url: getPrinterUrl(), papertype: 'normal', timeout: 3000 })
+    trader.onReceive = (resp) => resolve({ success: true,  response: resp })
+    trader.onError   = (resp) => { console.warn('[printer] 出單失敗（無出單機模式）'); resolve({ success: false, error: resp }) }
+    trader.sendMessage({ request })
+  })
+}
+
 export function printOrderReceipt(orderData) {
   return new Promise(async (resolve) => {
     let request
@@ -279,11 +300,139 @@ export function printOrderReceipt(orderData) {
       resolve({ success: false, error: e })
       return
     }
-    const trader = new StarWebPrintTrader({ url: getPrinterUrl(), papertype: 'normal', timeout: 3000 })
-    trader.onReceive = (resp) => resolve({ success: true,  response: resp })
-    trader.onError   = (resp) => { console.warn('[printer] 出單失敗（無出單機模式）'); resolve({ success: false, error: resp }) }
-    trader.sendMessage({ request })
+    const result = await sendPrintRequest(request)
+    resolve(result)
   })
+}
+
+/* ═══════════════════════════════════════════════
+   工作站分區出單設定（各店「此區不要印單」的開關）
+═══════════════════════════════════════════════ */
+export async function getStationPrintSettings() {
+  const storeId = getStoreId()
+  if (!storeId) return {}
+  const { data, error } = await supabase
+    .from('kitchen_station_settings')
+    .select('station, print_enabled')
+    .eq('store_id', storeId)
+  if (error) { console.error('[printer] 讀取工作站出單設定失敗', error); return {} }
+  const map = {}
+  for (const row of data ?? []) map[row.station] = row.print_enabled
+  return map
+}
+
+export async function setStationPrintEnabled(station, enabled) {
+  const storeId = getStoreId()
+  if (!storeId) return false
+  const { error } = await supabase
+    .from('kitchen_station_settings')
+    .upsert({ store_id: storeId, station, print_enabled: enabled }, { onConflict: 'store_id,station' })
+  if (error) { console.error('[printer] 儲存工作站出單設定失敗', error); return false }
+  return true
+}
+
+/* ═══════════════════════════════════════════════
+   工作站分區出單票（廚房票，只列品項，不列金額）
+═══════════════════════════════════════════════ */
+async function buildKitchenTicketRequest({ stationLabel, orderType, tableName, pickupNumber, items, tags, note }) {
+  const layout  = getPrinterLayout()
+  const LINE_W  = layout.paperWidth === '80' ? 46 : 30
+  const DOT_W   = layout.paperWidth === '80' ? 576 : 384
+
+  const builder = new StarWebPrintBuilder()
+  let req = ''
+
+  req += builder.createInitializationElement()
+  req += builder.createTextElement({ codepage: 'big5' })
+
+  const orderLabel = orderType === 'takeout' ? '外帶' : `內用${tableName ? '-' + tableName : ''}`
+  const pickupStr  = pickupNumber != null ? `#${String(pickupNumber).padStart(2, '0')}` : ''
+  const headerLine = pickupStr ? padLine(orderLabel, pickupStr, LINE_W) : orderLabel
+  req += builder.createTextElement({ emphasis: true, ...bigText(headerLine + '\n') })
+
+  if (stationLabel) {
+    req += builder.createTextElement({ emphasis: true, ...bigText(`【${stationLabel}】\n`) })
+  }
+
+  const now  = new Date()
+  const days = ['日', '一', '二', '三', '四', '五', '六']
+  const dStr = `${now.getFullYear()}/${String(now.getMonth()+1).padStart(2,'0')}/${String(now.getDate()).padStart(2,'0')}`
+  const tStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`
+  req += builder.createTextElement(bigText(`週${days[now.getDay()]} ${dStr} ${tStr}\n`))
+  req += builder.createRuledLineElement({ thickness: 'medium', width: DOT_W })
+
+  if (tags?.length || note) {
+    if (tags?.length) req += builder.createTextElement(bigText(`口味: ${tags.map(t => t.label).join(' ')}\n`))
+    if (note)         req += builder.createTextElement(bigText(`備註: ${note}\n`))
+    req += builder.createRuledLineElement({ thickness: 'thin', width: DOT_W })
+  }
+
+  const sortedItems = sortByCode(items)
+  sortedItems.forEach((line, idx) => {
+    req += builder.createTextElement({ emphasis: true, ...bigText(`${idx + 1}. ${line.name}  x${line.qty}\n`) })
+    // 廚房票一定要看得到單品備註（少冰/不要辣之類），這是實際要照做的指示
+    const lineExtra = itemExtraLine(line)
+    if (lineExtra) req += builder.createTextElement({ emphasis: true, ...bigText(`   ${lineExtra}\n`) })
+  })
+
+  req += builder.createRuledLineElement({ thickness: 'medium', width: DOT_W })
+  req += builder.createTextElement(bigText('\n'))
+  req += builder.createAlignmentElement({ position: 'left' })
+  req += builder.createCutPaperElement({ feed: true })
+
+  return req
+}
+
+/**
+ * 依商品目前設定的工作站，把同一張訂單的品項拆成多張廚房票分別列印：
+ * - 一個品項若同時屬於多個工作站，每個工作站都會各自印一張（各區都要備料）
+ * - 沒有設定任何工作站的品項，統一印在一張「未分類」票（一定會印，避免漏單）
+ * - 該工作站若被設定「此區不要印單」，就跳過該站
+ * menuItemsById：{ [menuItemId]: { stations: [...] } }，通常直接傳 menuStore.items 組出的 map
+ */
+export async function printKitchenTickets({ pickupNumber, orderType, tableName, items, tags, note, menuItemsById }) {
+  if (!items?.length) return []
+
+  const groups  = {}
+  const general = []
+
+  for (const line of items) {
+    const stations = menuItemsById?.[line.menuItemId]?.stations ?? []
+    if (!stations.length) { general.push(line); continue }
+    for (const st of stations) {
+      if (!groups[st]) groups[st] = []
+      groups[st].push(line)
+    }
+  }
+
+  // 沒有任何商品設定工作站的店家，直接不印任何分區票（維持原本只印一張收據的行為）
+  const hasAnyStationTag = Object.keys(groups).length > 0
+  if (!hasAnyStationTag) return []
+
+  const stationSettings = await getStationPrintSettings()
+  const results = []
+
+  for (const station of KITCHEN_STATIONS) {
+    const list = groups[station.id]
+    if (!list?.length) continue
+    if (stationSettings[station.id] === false) continue
+
+    const request = await buildKitchenTicketRequest({
+      stationLabel: station.label, orderType, tableName, pickupNumber,
+      items: list, tags, note,
+    })
+    results.push(await sendPrintRequest(request))
+  }
+
+  if (general.length) {
+    const request = await buildKitchenTicketRequest({
+      stationLabel: '未分類', orderType, tableName, pickupNumber,
+      items: general, tags, note,
+    })
+    results.push(await sendPrintRequest(request))
+  }
+
+  return results
 }
 
 export async function printUberReceipt(order) {

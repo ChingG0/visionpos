@@ -10,6 +10,16 @@
             <span class="som-time">{{ elapsedTime }}</span>
           </div>
           <div class="som-header-right">
+            <button
+              v-if="currentOrder && !currentIsPaid"
+              class="som-icon-btn som-icon-btn--danger"
+              @click="showCancelModal = true"
+              title="取消訂單"
+            >
+              <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 5.5h14"/><path d="M15.5 5.5l-1 11.5h-9L4.5 5.5"/><path d="M7.5 5.5V3.5h5v2"/>
+              </svg>
+            </button>
             <button v-if="currentOrder" class="som-icon-btn" :disabled="printing" @click="handlePrint" title="補印">
               <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M5 7V2h10v5"/><path d="M5 14H2V7h16v7h-3"/><path d="M5 14v4h10v-4"/>
@@ -68,7 +78,10 @@
               </thead>
               <tbody>
                 <tr v-for="(line, i) in currentOrder.items" :key="i">
-                  <td>{{ line.name }}</td>
+                  <td>
+                    {{ line.name }}
+                    <span v-if="lineExtraText(line)" class="som-line-extra">{{ lineExtraText(line) }}</span>
+                  </td>
                   <td class="som-td-num">{{ line.qty }}</td>
                   <td class="som-td-num">${{ (line.price * line.qty).toFixed(0) }}</td>
                 </tr>
@@ -105,8 +118,8 @@
 
             <!-- 未付款：正常操作列 -->
             <template v-else>
-              <!-- 取消目前這張單 -->
-              <button class="som-btn-red" @click="showCancelModal = true">取消訂單</button>
+              <!-- 修改目前這張單的內容（跳到點餐頁的修改模式） -->
+              <button class="som-btn-edit" @click="handleEditOrder">✎ 修改訂單</button>
 
               <!-- 併單模式開關（2張以上才有） -->
               <button v-if="orders.length > 1 && !mergeMode" class="som-btn-merge" @click="startMerge">
@@ -139,28 +152,31 @@
         <p class="som-dialog-title">確認取消訂單？</p>
         <p class="som-dialog-sub">{{ seat.name }}・第{{ activeIdx + 1 }}單</p>
         <div class="som-field">
-          <label>取消原因 <span class="req">*</span></label>
-          <input v-model="cancelReason" class="som-input" type="text" placeholder="例：客人臨時離開..." />
+          <label>取消原因（選填）</label>
+          <input v-model="cancelReason" class="som-input" type="text" placeholder="例：客人臨時離開..." @keyup.enter="handleCancelConfirm" />
         </div>
-        <div class="som-field">
-          <label>操作人員帳號 <span class="req">*</span></label>
-          <input v-model="cancelStaff" class="som-input" type="text" placeholder="帳號..." />
-        </div>
+        <p class="som-staff-note">操作人員：{{ currentStaffLabel }}（自動記錄）</p>
         <div class="som-dialog-footer">
           <button class="som-btn-ghost" @click="showCancelModal = false">返回</button>
-          <button class="som-btn-danger" :disabled="!cancelReason.trim() || !cancelStaff.trim() || cancelling" @click="handleCancelConfirm">
+          <button class="som-btn-danger" :disabled="cancelling" @click="handleCancelConfirm">
             {{ cancelling ? '處理中...' : '確認取消' }}
           </button>
         </div>
       </div>
     </div>
 
-    <!-- ── 單張結帳 PaymentModal（這裡結的本來就是「稍後付款」訂單，不該再選一次稍後付款）── -->
+    <!-- ── 單張結帳 PaymentModal（這裡結的本來就是「稍後付款」訂單，不該再選一次稍後付款；
+         結帳前可以在這個畫面裡直接調整折扣）── -->
     <PaymentModal
       v-if="showPaymentModal"
       :total="currentOrder?.total ?? 0"
       :allow-defer="false"
+      :allow-discount-edit="true"
+      :subtotal="currentOrder?.subtotal ?? 0"
+      :surcharge-amount="currentSurcharge"
+      :discount="currentOrder?.discount ?? null"
       @close="showPaymentModal = false"
+      @update:discount="handleSaveDiscount"
       @paid="handlePaymentAndComplete"
     />
 
@@ -179,6 +195,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useDineInStore }    from '@/stores/dineInStore.js'
+import { useAuthStore }      from '@/stores/authStore.js'
 import { resetSeatStatus, markTablePaid } from '@/lib/floorOrders.js'
 import { TAG_COLOR_MAP }     from '@/constants/tagColors.js'
 import { printOrderReceipt } from '@/lib/printer.js'
@@ -186,7 +203,7 @@ import { supabase }          from '@/lib/supabase.js'
 import PaymentModal          from '@/components/order/PaymentModal.vue'
 
 const props = defineProps({ seat: { type: Object, required: true } })
-const emit  = defineEmits(['close', 'completed', 'add-order', 'payment-done'])
+const emit  = defineEmits(['close', 'completed', 'add-order', 'payment-done', 'edit-order'])
 
 const dineInStore = useDineInStore()
 const loading     = ref(true)
@@ -231,6 +248,14 @@ const elapsedTime = computed(() => {
 
 function tagColorOf(tag) { return TAG_COLOR_MAP[tag.color] ?? TAG_COLOR_MAP.gray }
 
+/* 單品標籤 + 手輸備註，印在品名下方一行 */
+function lineExtraText(line) {
+  const parts = []
+  if (line.tags?.length) parts.push(line.tags.map(t => t.label).join('、'))
+  if (line.note)         parts.push(line.note)
+  return parts.join('　')
+}
+
 /* 算「任意一張訂單」實際折扣金額，跟 currentDiscount 用同一套公式，
  * 併單時要把每張被併訂單自己的折扣加總，所以拆成一個可重複呼叫的函式。 */
 function orderDiscountAmount(order) {
@@ -243,6 +268,13 @@ function orderDiscountAmount(order) {
 /* ── 加單（通知 DineInView 切換到新訂單模式） ── */
 function handleAddOrder() {
   emit('add-order', props.seat)
+}
+
+/* ── 修改訂單：帶著這張訂單的 id 跳到點餐頁的「修改模式」，
+ *    在那邊可以加/刪品項、改標籤備註，存檔後回到內用頁。 ── */
+function handleEditOrder() {
+  if (!currentOrder.value) return
+  emit('edit-order', { seat: props.seat, orderId: currentOrder.value.id })
 }
 
 /* ── 完成結帳（已付款）──────────────────────────────────────────────────
@@ -272,6 +304,18 @@ async function completeCurrent() {
     activeIdx.value = Math.min(activeIdx.value, Math.max(orders.value.length - 1, 0))
   }
   completing.value = false
+}
+
+/* ── 稍後付款訂單，結帳前可先在 PaymentModal 內調整折扣（%或金額）── */
+async function handleSaveDiscount(newDiscount) {
+  if (!currentOrder.value) return
+  const base = (currentOrder.value.subtotal ?? 0) + currentSurcharge.value
+  const discountAmount = newDiscount?.value
+    ? (newDiscount.type === 'percent' ? Math.round(base * newDiscount.value / 100) : Math.min(newDiscount.value, base))
+    : 0
+  const newTotal = Math.max(0, base - discountAmount)
+  await dineInStore.updateOrderDiscount(currentOrder.value.id, props.seat.id, newDiscount, newTotal)
+  orders.value = [...dineInStore.getOrdersBySeatId(props.seat.id)]
 }
 
 /* ── 稍後付款 → 開 PaymentModal → 結帳 ── */
@@ -461,24 +505,31 @@ async function handlePrint() {
   printing.value = false
 }
 
-/* ── 取消訂單 ── */
+/* ── 取消訂單 ─────────────────────────────────────────────────────────────
+   原因改成選填（現場忙的時候硬要打字反而讓店員亂填），
+   操作人員直接用目前登入的帳號，不用手動輸入也不會被冒名。 */
 const showCancelModal = ref(false)
 const cancelReason    = ref('')
-const cancelStaff     = ref('')
 const cancelling      = ref(false)
+
+const currentStaffLabel = computed(() => {
+  const u = useAuthStore().user
+  if (!u) return '—'
+  return u.username ? `${u.name}（${u.username}）` : (u.name ?? '—')
+})
 
 async function handleCancelConfirm() {
   if (!currentOrder.value || cancelling.value) return
   cancelling.value = true
   const result = await dineInStore.cancelOrder(currentOrder.value.id, props.seat.id, {
-    reason: cancelReason.value.trim(), staff: cancelStaff.value.trim(),
+    reason: cancelReason.value.trim() || '未填寫',
+    staff:  currentStaffLabel.value,
   })
   if (result === 'last') { await resetSeatStatus(props.seat.id); emit('completed', props.seat.id); emit('close') }
   else { orders.value = [...dineInStore.getOrdersBySeatId(props.seat.id)]; activeIdx.value = Math.min(activeIdx.value, orders.value.length - 1) }
   cancelling.value = false
   showCancelModal.value = false
   cancelReason.value = ''
-  cancelStaff.value  = ''
 }
 
 /* ── 清空座位（找不到訂單時） ── */
@@ -514,6 +565,8 @@ async function handleReset() {
 }
 .som-icon-btn:hover:not(:disabled) { background: #e8dcc8; }
 .som-icon-btn:disabled { opacity: 0.5; }
+.som-icon-btn--danger { background: #fff0ee; color: #c0392b; border-color: #f0c0b8; }
+.som-icon-btn--danger:hover:not(:disabled) { background: #fde0dc; }
 .som-close { width: 26px; height: 26px; border-radius: 50%; background: #f0e8d8; font-size: 16px; color: #7a6850; display: flex; align-items: center; justify-content: center; }
 .som-close:hover { background: #e0d0b8; }
 
@@ -548,6 +601,7 @@ async function handleReset() {
 .som-th-num { text-align: right; }
 .som-table td { padding: 7px 6px 7px 0; border-bottom: 1px solid #faf5ec; color: #1a0800; }
 .som-td-num { text-align: right; }
+.som-line-extra { display: block; font-size: 11px; color: #c0392b; margin-top: 2px; }
 .som-extras { margin-top: 9px; display: flex; flex-direction: column; gap: 5px; }
 .som-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .som-tag-pill { font-size: 11.5px; font-weight: 500; padding: 2px 9px; border-radius: 999px; }
@@ -568,6 +622,8 @@ async function handleReset() {
 .som-btn-ghost:hover { background: #e8dcc8; }
 .som-btn-merge  { flex: 1; padding: 9px 6px; border-radius: 10px; font-size: 12.5px; color: #5a6830; background: #f0f3e8; border: 1px solid #c0c8a0; }
 .som-btn-merge:hover { background: #e4eccc; }
+.som-btn-edit   { flex: 1; padding: 9px 6px; border-radius: 10px; font-size: 12.5px; color: #8a6020; background: #fde8c0; border: 1px solid #e8c888; white-space: nowrap; }
+.som-btn-edit:hover { background: #f8dca0; }
 .som-btn-complete { flex: 2; padding: 9px 6px; border-radius: 10px; font-size: 13.5px; font-weight: 600; color: #fff; background: #2f7a3d; border: none; }
 .som-btn-complete:hover:not(:disabled) { background: #236030; }
 .som-btn-complete:disabled { opacity: 0.55; }
@@ -583,6 +639,10 @@ async function handleReset() {
 .som-field        { display: flex; flex-direction: column; gap: 4px; }
 .som-field label  { font-size: 12px; font-weight: 500; color: #5a4030; }
 .req { color: #c0392b; }
+.som-staff-note {
+  font-size: 11.5px; color: var(--color-text-secondary);
+  background: #faf5ec; border-radius: 8px; padding: 6px 10px;
+}
 .som-input { padding: 7px 9px; border: 1.5px solid #c8b89a; border-radius: 8px; font-size: 13px; background: #faf5ec; outline: none; font-family: inherit; }
 .som-input:focus { border-color: #c0392b; }
 .som-dialog-footer { display: flex; gap: 7px; }

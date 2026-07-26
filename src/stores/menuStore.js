@@ -25,6 +25,8 @@ export const useMenuStore = defineStore('menu', () => {
       name: row.name, cost: row.cost, price: row.price,
       icon: row.icon, status: row.status, sortOrder: row.sort_order,
       taxType: row.tax_type ?? 'taxable',
+      stations: row.stations ?? [],   // 出餐工作站（可複選，例：['wok','drink']）
+      tagIds:   row.tag_ids  ?? [],   // 這個商品的常用標籤（點餐時單品備註視窗會優先顯示）
     }
   }
 
@@ -34,6 +36,8 @@ export const useMenuStore = defineStore('menu', () => {
       name: item.name, cost: item.cost, price: item.price,
       icon: item.icon, status: item.status, sort_order: item.sortOrder,
       tax_type: item.taxType ?? 'taxable',
+      stations: item.stations ?? [],
+      tag_ids:  item.tagIds   ?? [],
       store_id: getStoreId(),
     }
   }
@@ -81,7 +85,7 @@ export const useMenuStore = defineStore('menu', () => {
     return `${prefix}${String(maxNum + 1).padStart(2, '0')}`
   }
 
-  async function addItem({ name, categoryId, cost, price, icon, taxType }) {
+  async function addItem({ name, categoryId, cost, price, icon, taxType, stations, tagIds }) {
     const maxSort = items.value
       .filter(i => i.categoryId === categoryId)
       .reduce((m, i) => Math.max(m, i.sortOrder ?? -1), -1)
@@ -90,6 +94,8 @@ export const useMenuStore = defineStore('menu', () => {
       name, cost: cost ?? 0, price: price ?? 0, icon: icon || '🍽️',
       status: true, sortOrder: maxSort + 1,
       taxType: taxType ?? 'taxable',
+      stations: stations ?? [],
+      tagIds:   tagIds   ?? [],
     }
     items.value.push(newItem)
     await persistItem(newItem)
@@ -124,6 +130,26 @@ export const useMenuStore = defineStore('menu', () => {
     await Promise.all(newItems.map(persistItem))
   }
 
+  /** 刪除商品（可多筆）。
+   *  歷史訂單的品項是當下寫進 items jsonb 的快照，所以刪掉商品不會影響任何已成立的訂單或報表；
+   *  這裡只需要一併清掉該商品的食材配方，避免留下孤兒資料。 */
+  async function deleteItems(ids) {
+    const storeId = getStoreId()
+    if (!storeId || !ids?.length) return false
+
+    const { error: recipeErr } = await supabase
+      .from('product_ingredient_recipes').delete().in('product_id', ids)
+    if (recipeErr) { console.error('[menuStore] 刪除食材配方失敗', recipeErr); return false }
+
+    const { error: err } = await supabase
+      .from('menu_items').delete().in('id', ids).eq('store_id', storeId)
+    if (err) { console.error('[menuStore] 刪除商品失敗', err); return false }
+
+    const idSet = new Set(ids)
+    items.value = items.value.filter(i => !idSet.has(i.id))
+    return true
+  }
+
   async function setStatus(id, status) {
     const item = items.value.find(i => i.id === id)
     if (!item) return
@@ -150,6 +176,36 @@ export const useMenuStore = defineStore('menu', () => {
     list.splice(clamped, 0, item)
     list.forEach((it, idx) => { it.sortOrder = idx })
     await Promise.all(list.map(persistItem))
+  }
+
+  /** 把某個標籤套用到指定的商品上（標籤管理頁用）。
+   *  productIds 之外的商品若原本有這個標籤，會一併被移除，
+   *  等於「這個標籤現在只屬於這些商品」。 */
+  async function setTagOnProducts(tagId, productIds) {
+    const idSet   = new Set(productIds)
+    const changed = []
+    for (const item of items.value) {
+      const has    = (item.tagIds ?? []).includes(tagId)
+      const should = idSet.has(item.id)
+      if (has === should) continue
+      item.tagIds = should
+        ? [...(item.tagIds ?? []), tagId]
+        : (item.tagIds ?? []).filter(id => id !== tagId)
+      changed.push(item)
+    }
+    await Promise.all(changed.map(persistItem))
+  }
+
+  /** 標籤被刪除時，把它從所有商品的常用標籤裡清掉，避免留下孤兒 id。 */
+  async function removeTagFromAllProducts(tagId) {
+    const changed = items.value.filter(i => (i.tagIds ?? []).includes(tagId))
+    for (const item of changed) item.tagIds = item.tagIds.filter(id => id !== tagId)
+    await Promise.all(changed.map(persistItem))
+  }
+
+  /** 目前掛著某個標籤的商品 id 清單。 */
+  function productIdsWithTag(tagId) {
+    return items.value.filter(i => (i.tagIds ?? []).includes(tagId)).map(i => i.id)
   }
 
   function getCategoryLabel(categoryId) {
@@ -190,7 +246,8 @@ export const useMenuStore = defineStore('menu', () => {
 
   return {
     categories, items, loading, error,
-    init, reset, addItem, updateItem, duplicateItems,
+    init, reset, addItem, updateItem, duplicateItems, deleteItems,
     setStatus, unpublish, publishAt, getCategoryLabel, reorderCategories, addCategory,
+    setTagOnProducts, removeTagFromAllProducts, productIdsWithTag,
   }
 })

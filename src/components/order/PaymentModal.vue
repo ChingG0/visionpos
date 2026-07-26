@@ -95,6 +95,10 @@
             </div>
           </div>
           <div class="pm-action">
+            <div v-if="allowDiscountEdit" class="pm-discount-row">
+              <span class="pm-discount-status">{{ discountStatusLabel }}</span>
+              <button class="pm-discount-edit-btn" @click="showDiscountEditor = true">✎ 折扣</button>
+            </div>
             <button class="pm-confirm pm-confirm--cash"
               :disabled="change < 0 && enteredAmount > 0"
               @click="confirm">
@@ -125,6 +129,10 @@
             </div>
           </div>
           <div class="pm-action">
+            <div v-if="allowDiscountEdit" class="pm-discount-row">
+              <span class="pm-discount-status">{{ discountStatusLabel }}</span>
+              <button class="pm-discount-edit-btn" @click="showDiscountEditor = true">✎ 折扣</button>
+            </div>
             <button class="pm-confirm" @click="confirmCard">
               ✓ 確認付款完成
             </button>
@@ -144,6 +152,10 @@
             </div>
           </div>
           <div class="pm-action">
+            <div v-if="allowDiscountEdit" class="pm-discount-row">
+              <span class="pm-discount-status">{{ discountStatusLabel }}</span>
+              <button class="pm-discount-edit-btn" @click="showDiscountEditor = true">✎ 折扣</button>
+            </div>
             <button class="pm-confirm" @click="confirm">✓ 確認付款完成</button>
           </div>
         </template>
@@ -177,6 +189,16 @@
 
       </div>
     </div>
+
+    <!-- ── 結帳前調整折扣（稍後付款訂單真正結帳時用）── -->
+    <DiscountEditModal
+      v-if="showDiscountEditor"
+      :subtotal="subtotal"
+      :surcharge-amount="surchargeAmount"
+      :discount="localDiscount"
+      @close="showDiscountEditor = false"
+      @save="onDiscountSave"
+    />
   </Teleport>
 </template>
 
@@ -184,12 +206,44 @@
 import { ref, computed, onMounted } from 'vue'
 import { supabase } from '@/lib/supabase.js'
 import { useAuthStore } from '@/stores/authStore.js'
+import DiscountEditModal from './DiscountEditModal.vue'
 
 const props = defineProps({
-  total:      { type: Number,  required: true },
-  allowDefer: { type: Boolean, default: true },
+  total:            { type: Number,  required: true },
+  allowDefer:       { type: Boolean, default: true },
+  // ── 結帳前調整折扣（目前只有內用「稍後結帳」單張結帳、外帶稍後付款結帳有開放）──
+  allowDiscountEdit: { type: Boolean, default: false },
+  subtotal:          { type: Number, default: 0 },
+  surchargeAmount:   { type: Number, default: 0 },
+  discount:          { type: Object, default: null },
 })
-const emit = defineEmits(['close', 'paid'])
+const emit = defineEmits(['close', 'paid', 'update:discount'])
+
+/* ── 結帳前調整折扣：本地即時預覽總計，儲存時往上通知呼叫端寫回 DB ── */
+const localDiscount    = ref(props.discount)
+const showDiscountEditor = ref(false)
+
+const total = computed(() => {
+  if (!props.allowDiscountEdit) return props.total
+  const base = props.subtotal + props.surchargeAmount
+  const d = localDiscount.value
+  const discountAmount = d?.value
+    ? (d.type === 'percent' ? Math.round(base * d.value / 100) : Math.min(d.value, base))
+    : 0
+  return Math.max(0, base - discountAmount)
+})
+
+const discountStatusLabel = computed(() => {
+  const d = localDiscount.value
+  if (!d?.value) return '未設定折扣'
+  return `折扣：${d.type === 'percent' ? d.value + '%' : '$' + d.value}`
+})
+
+function onDiscountSave(newDiscount) {
+  localDiscount.value = newDiscount
+  showDiscountEditor.value = false
+  emit('update:discount', newDiscount)
+}
 
 const authStore = useAuthStore()
 
@@ -312,7 +366,7 @@ function confirmRecheck() {
 }
 
 const quickAmounts = computed(() => {
-  const t = props.total
+  const t = total.value
   const options = new Set()
   ;[100, 500, 1000].forEach(q => { if (q > t) options.add(q) })
   const ceil100 = Math.ceil(t / 100) * 100
@@ -321,7 +375,7 @@ const quickAmounts = computed(() => {
 })
 
 const enteredAmount = computed(() => parseFloat(enteredStr.value) || 0)
-const change        = computed(() => enteredAmount.value - props.total)
+const change        = computed(() => enteredAmount.value - total.value)
 
 function switchMethod(m) {
   method.value     = m
@@ -375,8 +429,8 @@ function confirm() {
 }
 
 function doEmitPaid() {
-  const amount = enteredAmount.value || props.total
-  const chg    = method.value === 'cash' ? Math.max(0, amount - props.total) : 0
+  const amount = enteredAmount.value || total.value
+  const chg    = method.value === 'cash' ? Math.max(0, amount - total.value) : 0
   emit('paid', {
     method:        method.value,
     methodLabel:   METHODS.value.find(m => m.key === method.value)?.label ?? method.value,
@@ -454,6 +508,17 @@ function doEmitPaid() {
 .pm-linepay-hint-sm { font-size: 12px; color: #666; text-align: center; line-height: 1.8; }
 
 .pm-action { padding: 10px 16px 16px; }
+.pm-discount-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; margin-bottom: 10px;
+  background: rgba(255,255,255,0.06); border-radius: 10px;
+}
+.pm-discount-status { font-size: 13px; color: #ccc; }
+.pm-discount-edit-btn {
+  font-size: 12.5px; font-weight: 600; color: #1a0800;
+  background: #e8a038; border: none; padding: 6px 14px; border-radius: 999px;
+}
+.pm-discount-edit-btn:hover { background: #d89028; }
 .pm-confirm { width: 100%; padding: 16px; border-radius: 12px; font-size: 15px; font-weight: 700; color: #fff; background: #3a7a3a; transition: background 0.15s; }
 .pm-confirm:hover:not(:disabled) { background: #2a6a2a; }
 .pm-confirm:disabled { opacity: 0.4; cursor: not-allowed; }

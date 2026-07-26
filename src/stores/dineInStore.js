@@ -175,6 +175,42 @@ export const useDineInStore = defineStore('dineInOrders', () => {
     if (idx >= 0) arr[idx] = { ...arr[idx], ...patch }
   }
 
+  /** 更新一張訂單的品項內容（例如工作站頁面標示「已出餐」）。
+   *  只更新 items 欄位，不動其他金額/狀態；本地快取同步更新，收銀台等其他畫面
+   *  若沒特別讀 served 欄位就完全不受影響。 */
+  async function updateOrderItems(orderId, seatId, newItems) {
+    const { error } = await supabase
+      .from('dine_in_orders')
+      .update({ items: newItems })
+      .eq('id', orderId)
+    if (error) { console.error('[dineInStore] 更新品項失敗', error); return false }
+    patchOrderLocal(seatId, orderId, { items: newItems })
+    return true
+  }
+
+  /** 修改訂單內容（品項/標籤/備註/加價/折扣/金額）。
+   *  只給「還沒結帳」的訂單用，不動 status / 付款欄位。 */
+  async function updateOrderContent(orderId, seatId, { items, tags, note, surcharge, discount, subtotal, total }) {
+    const { error } = await supabase
+      .from('dine_in_orders')
+      .update({ items, tags, note, surcharge, discount, subtotal, total })
+      .eq('id', orderId)
+    if (error) { console.error('[dineInStore] 修改訂單失敗', error); return false }
+    patchOrderLocal(seatId, orderId, { items, tags, note, surcharge, discount, subtotal, total })
+    return true
+  }
+
+  /** 稍後付款訂單，真正結帳前調整折扣（金額/百分比）；total 由呼叫端算好傳進來。 */
+  async function updateOrderDiscount(orderId, seatId, discount, total) {
+    const { error } = await supabase
+      .from('dine_in_orders')
+      .update({ discount, total })
+      .eq('id', orderId)
+    if (error) { console.error('[dineInStore] 更新折扣失敗', error); return false }
+    patchOrderLocal(seatId, orderId, { discount, total })
+    return true
+  }
+
   function markOrdersPaid(seatId, orderIds, methodLabel, paymentAmount, changeAmount) {
     const idSet = new Set(orderIds.map(String))
     if (!activeOrders.value[seatId]) return
@@ -189,6 +225,6 @@ export const useDineInStore = defineStore('dineInOrders', () => {
     activeOrders, loading,
     init, reset, addOrder,
     getOrderBySeatId, getOrdersBySeatId,
-    completeOrder, completeOrders, cancelOrder, markOrdersPaid, removeOrderLocal, patchOrderLocal,
+    completeOrder, completeOrders, cancelOrder, markOrdersPaid, removeOrderLocal, patchOrderLocal, updateOrderItems, updateOrderDiscount, updateOrderContent,
   }
 })

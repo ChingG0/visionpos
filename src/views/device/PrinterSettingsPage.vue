@@ -142,6 +142,26 @@
       </div>
     </section>
 
+    <!-- ── 工作站分區出單 ── -->
+    <section class="ps__section">
+      <h2 class="ps__section-title">🔪 工作站分區出單</h2>
+      <p class="ps__section-hint">
+        商品管理裡有設定「出餐工作站」的商品，結帳出單時會依工作站另外印分區廚房票。
+        這裡可以關閉不需要印票的工作站（例如飲料區用工作站畫面看單就好，不用印紙本）。
+      </p>
+      <div v-if="stationSettingsLoading" class="ps__section-hint">載入中...</div>
+      <div v-else class="ps__station-list">
+        <label v-for="st in KITCHEN_STATIONS" :key="st.id" class="ps__station-row">
+          <span>{{ st.label }}</span>
+          <input
+            type="checkbox"
+            :checked="stationPrintEnabled[st.id] !== false"
+            @change="onStationToggle(st.id, $event.target.checked)"
+          />
+        </label>
+      </div>
+    </section>
+
     <!-- ── 操作按鈕 ── -->
     <div class="ps__actions">
       <button class="ps__btn-reset" @click="handleReset">還原預設值</button>
@@ -162,7 +182,23 @@ import {
   getPrinterQR, setPrinterQR, removePrinterQR,
   getHomepageUrl, setHomepageUrl,
   checkPrinterStatus, DEFAULT_LAYOUT,
+  getStationPrintSettings, setStationPrintEnabled,
 } from '@/lib/printer.js'
+import { KITCHEN_STATIONS } from '@/constants/kitchenStations.js'
+
+/* ── 工作站分區出單 ── */
+const stationPrintEnabled  = ref({})
+const stationSettingsLoading = ref(true)
+
+onMounted(async () => {
+  stationPrintEnabled.value = await getStationPrintSettings()
+  stationSettingsLoading.value = false
+})
+
+async function onStationToggle(stationId, enabled) {
+  stationPrintEnabled.value = { ...stationPrintEnabled.value, [stationId]: enabled }
+  await setStationPrintEnabled(stationId, enabled)
+}
 
 /* ── IP ── */
 const ip       = ref(getPrinterIp())
@@ -333,6 +369,15 @@ watch(ip,    () => { saved.value = false; ipStatus.value = null })
 }
 .ps__scale-btn--active { background: #e8a038; color: #fff; border-color: #e8a038; }
 .ps__scale-preview { font-family: 'Noto Sans TC', monospace; color: var(--color-text-primary); }
+
+/* 工作站分區出單 */
+.ps__station-list { display: flex; flex-direction: column; gap: 8px; }
+.ps__station-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; background: #faf5ec; border-radius: 8px;
+  font-size: 13px; color: var(--color-text-primary); cursor: pointer;
+}
+.ps__station-row input { width: 16px; height: 16px; cursor: pointer; }
 
 /* 頁尾 */
 .ps__checkbox-row { display: flex; align-items: center; }
