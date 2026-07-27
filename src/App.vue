@@ -63,6 +63,7 @@ import { useMemberStore }      from '@/stores/memberStore.js'
 import { useTagStore }         from '@/stores/tagStore.js'
 import { useTakeoutStore }     from '@/stores/takeoutStore.js'
 import { useAuthStore }        from '@/stores/authStore.js'
+import { useStoreSettingsStore } from '@/stores/storeSettingsStore.js'
 import { getPrinterLogo }      from '@/lib/printer.js'
 import { useHeartbeat }        from '@/composables/useHeartbeat.js'
 import { useOffline }          from '@/composables/useOffline.js'
@@ -75,6 +76,7 @@ const memberStore      = useMemberStore()
 const tagStore         = useTagStore()
 const takeoutStore     = useTakeoutStore()
 const authStore        = useAuthStore()
+const storeSettingsStore = useStoreSettingsStore()
 const { startHeartbeat } = useHeartbeat()
 const { isOffline, showBanner } = useOffline()
 const { runBootCheck }  = useInvoiceBootCheck()
@@ -100,6 +102,8 @@ onMounted(() => {
     memberStore.init()
     tagStore.init()
     takeoutStore.init()
+    // 付款方式/發票啟用狀態先載好，結帳畫面才不會等查詢回來才把按鈕補上
+    storeSettingsStore.init()
     startHeartbeat()  // 登入後才開始 heartbeat
 
     // 電子發票開機檢核：對時、賣方統編、加值中心憑證、發票字軌延續性，

@@ -29,15 +29,33 @@ async function callEdge(body) {
   return res.json()
 }
 
+/* 「有沒有啟用發票」這個設定幾乎不會變，但原本每次結帳都查一次資料庫，
+ * 等於每筆訂單都多一趟往返。改成快取 5 分鐘，店家在後台改設定後最慢 5 分鐘生效，
+ * 要立即生效可以呼叫 clearInvoiceEnabledCache()（發票設定頁儲存時會呼叫）。 */
+const ENABLED_TTL = 5 * 60 * 1000
+let enabledCache = { storeId: null, value: null, at: 0 }
+
+export function clearInvoiceEnabledCache() {
+  enabledCache = { storeId: null, value: null, at: 0 }
+}
+
 export function useInvoice() {
 
   /** 檢查此店是否啟用發票 */
   async function isInvoiceEnabled() {
     const storeId = getStoreId()
     if (!storeId) return false
+
+    const fresh = enabledCache.storeId === storeId
+      && enabledCache.value !== null
+      && (Date.now() - enabledCache.at) < ENABLED_TTL
+    if (fresh) return enabledCache.value
+
     const { data } = await supabase
       .from('invoice_settings').select('enabled').eq('store_id', storeId).maybeSingle()
-    return data?.enabled === true
+    const value = data?.enabled === true
+    enabledCache = { storeId, value, at: Date.now() }
+    return value
   }
 
   /**

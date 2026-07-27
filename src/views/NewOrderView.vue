@@ -432,20 +432,77 @@ async function saveEditedOrder() {
   }
 }
 
+/* ── 把結帳當下的購物車內容整包備份起來 ──────────────────────────────────
+   結帳流程會先清空購物車讓畫面立刻有反應，網路動作在背景跑，
+   所以送出訂單、列印、開發票用的都必須是這份快照，不能再讀 cartItems。 */
+function snapshotCart() {
+  return {
+    orderType:       orderType.value,
+    items:           cartItems.value.map(l => ({ ...l })),
+    tags:            selectedTagObjects.value.map(t => ({ ...t })),
+    tagIds:          [...selectedTagIds.value],
+    note:            note.value,
+    surcharge:       surcharge.value ? { ...surcharge.value } : null,
+    discount:        discount.value  ? { ...discount.value }  : null,
+    subtotal:        subtotal.value,
+    surchargeAmount: surchargeAmount.value,
+    discountAmount:  discountAmount.value,
+    total:           total.value,
+    seat:            selectedTable.value ? { ...selectedTable.value } : null,
+    customerName:    customerName.value,
+    customerPhone:   customerPhone.value,
+  }
+}
+
+/** 送出失敗時把購物車還原。若店員已經開始下一單就不覆蓋，避免蓋掉新輸入的內容。 */
+function restoreCart(snap) {
+  if (cartItems.value.length > 0) return false
+  cartItems.value      = snap.items
+  selectedTagIds.value = snap.tagIds
+  note.value           = snap.note
+  surcharge.value      = snap.surcharge
+  discount.value       = snap.discount
+  orderType.value      = snap.orderType
+  selectedTable.value  = snap.seat
+  customerName.value   = snap.customerName
+  customerPhone.value  = snap.customerPhone
+  return true
+}
+
 async function handlePaymentConfirmed({ method, methodLabel, paymentAmount, changeAmount, card4, carrierNum, buyerTaxId }) {
   if (isProcessingPayment.value) return
   isProcessingPayment.value = true
   showPaymentModal.value = false
 
+  // 先備份再立刻清空：原本要等三到五趟網路往返完成才清，畫面會凍結約 1.3 秒，
+  // 店員以為沒按到就重複點。改成先讓畫面有反應，寫入在背景進行，失敗再還原。
+  const snap = snapshotCart()
+  clearCart()
+
   try {
-    await handlePaymentConfirmedInner({ method, methodLabel, paymentAmount, changeAmount, card4, carrierNum, buyerTaxId })
+    await handlePaymentConfirmedInner({ method, methodLabel, paymentAmount, changeAmount, card4, carrierNum, buyerTaxId }, snap)
+  } catch (e) {
+    console.error('[checkout] 結帳失敗', e)
+    const restored = restoreCart(snap)
+    alert(restored
+      ? '結帳失敗，訂單沒有送出，購物車已還原。請確認網路後再試一次。'
+      : '結帳失敗，訂單沒有送出。請確認網路後重新輸入這筆訂單。')
   } finally {
     isProcessingPayment.value = false
   }
 }
 
-async function handlePaymentConfirmedInner({ method, methodLabel, paymentAmount, changeAmount, card4, carrierNum, buyerTaxId }) {
-  const pickupNumber = await getNextPickupNumber()
+async function handlePaymentConfirmedInner({ method, methodLabel, paymentAmount, changeAmount, card4, carrierNum, buyerTaxId }, snap) {
+  const isDefer   = (method === 'defer')
+  const isTakeout = snap.orderType === 'takeout'
+
+  // 取號跟更新座位狀態互不相依，並行送出省一趟往返
+  const [pickupNumber] = await Promise.all([
+    getNextPickupNumber(),
+    isTakeout
+      ? Promise.resolve()
+      : (isDefer ? markTableOrdered : markTablePaid)(snap.seat.id),
+  ])
 
   const paymentFields = {
     paymentMethod: methodLabel,
@@ -457,74 +514,74 @@ async function handlePaymentConfirmedInner({ method, methodLabel, paymentAmount,
   }
 
   const orderPayload = {
-    items:     cartItems.value,
-    tags:      selectedTagObjects.value,
-    note:      note.value,
-    surcharge: surcharge.value,
-    discount:  discount.value,
-    subtotal:  subtotal.value,
-    total:     total.value,
+    items:     snap.items,
+    tags:      snap.tags,
+    note:      snap.note,
+    surcharge: snap.surcharge,
+    discount:  snap.discount,
+    subtotal:  snap.subtotal,
+    total:     snap.total,
     pickupNumber,
     ...paymentFields,
   }
 
   let savedOrder = null
 
-  if (orderType.value === 'takeout') {
+  if (isTakeout) {
     savedOrder = await takeoutStore.addOrder({
       ...orderPayload,
-      customerName:  customerName.value,
-      customerPhone: customerPhone.value,
+      customerName:  snap.customerName,
+      customerPhone: snap.customerPhone,
     })
-    if (savedOrder?.id) inventoryStore.deductByOrder(savedOrder.id, cartItems.value)
   } else {
-    const isDefer = (method === 'defer')
-    await (isDefer ? markTableOrdered : markTablePaid)(selectedTable.value.id)
-
     savedOrder = await dineInStore.addOrder({
-      seatId:   selectedTable.value.id,
-      seatName: selectedTable.value.name,
+      seatId:   snap.seat.id,
+      seatName: snap.seat.name,
       ...orderPayload,
     })
-    if (savedOrder?.id) inventoryStore.deductByOrder(savedOrder.id, cartItems.value)
   }
+
+  // 訂單沒寫進去就視為失敗，往上拋讓購物車還原，不要讓店員以為單子送出了
+  if (!savedOrder?.id) throw new Error('訂單寫入失敗')
+
+  inventoryStore.deductByOrder(savedOrder.id, snap.items)
 
   printOrderReceipt({
     pickupNumber,
-    orderType: orderType.value,
-    tableName: selectedTable.value?.name,
-    items:     cartItems.value,
-    tags:      selectedTagObjects.value,
-    note:      note.value,
-    subtotal:  subtotal.value,
-    surchargeAmount: surchargeAmount.value,
-    discountAmount:  discountAmount.value,
-    total:     total.value,
+    orderType: snap.orderType,
+    tableName: snap.seat?.name,
+    items:     snap.items,
+    tags:      snap.tags,
+    note:      snap.note,
+    subtotal:  snap.subtotal,
+    surchargeAmount: snap.surchargeAmount,
+    discountAmount:  snap.discountAmount,
+    total:     snap.total,
   })
 
   // 工作站分區出單：只有商品管理裡有設定「出餐工作站」的店家才會額外印分區廚房票，
   // 沒有設定的店家維持原本只印一張收據，不受影響。
   printKitchenTickets({
     pickupNumber,
-    orderType: orderType.value,
-    tableName: selectedTable.value?.name,
-    items:     cartItems.value,
-    tags:      selectedTagObjects.value,
-    note:      note.value,
+    orderType: snap.orderType,
+    tableName: snap.seat?.name,
+    items:     snap.items,
+    tags:      snap.tags,
+    note:      snap.note,
     menuItemsById: menuItemsById.value,
   })
 
-  // 電子發票（有啟用才開，稍後付款不開票）
-  if (method !== 'defer' && savedOrder?.id) {
+  // 電子發票（有啟用才開，稍後付款不開票）。整段都不擋畫面，購物車早就清空了。
+  if (!isDefer) {
     const { useInvoice } = await import('@/composables/useInvoice.js')
     const { isInvoiceEnabled, issueInvoice } = useInvoice()
     if (await isInvoiceEnabled()) {
-      // fire-and-forget，不阻擋結帳流程；若綠界條碼尚未就緒只在 console 提醒，不彈窗打斷結帳
+      // fire-and-forget；若綠界條碼尚未就緒只在 console 提醒，不彈窗打斷結帳
       issueInvoice({
         id:        savedOrder.id,
-        orderType: orderType.value === 'takeout' ? 'takeout' : 'dine_in',
-        items:     cartItems.value,
-        total:     total.value,
+        orderType: isTakeout ? 'takeout' : 'dine_in',
+        items:     snap.items,
+        total:     snap.total,
         buyerTaxId,
         carrierNum,
       }).then(res => {
@@ -532,8 +589,6 @@ async function handlePaymentConfirmedInner({ method, methodLabel, paymentAmount,
       })
     }
   }
-
-  clearCart()
 }
 </script>
 

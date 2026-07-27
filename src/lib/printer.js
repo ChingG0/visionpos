@@ -141,7 +141,15 @@ function sortByCode(items) {
   })
 }
 
+/* Logo / QR 每次出單都要 decode base64 再畫進 canvas，那是主執行緒的工作，
+ * 正好卡在按下結帳的那一瞬間。同一張圖同樣尺寸的結果直接快取起來重複用。 */
+const canvasCache = new Map()
+
 async function loadImageCanvas(base64, paperWidthDots, maxHeightDots = 120) {
+  const cacheKey = `${paperWidthDots}x${maxHeightDots}:${base64.length}:${base64.slice(-64)}`
+  const cached = canvasCache.get(cacheKey)
+  if (cached) return cached
+
   const img = new Image()
   await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = base64 })
   const scaleW = paperWidthDots / img.naturalWidth
@@ -156,7 +164,13 @@ async function loadImageCanvas(base64, paperWidthDots, maxHeightDots = 120) {
   ctx.fillStyle = '#ffffff'
   ctx.fillRect(0, 0, canvas.width, canvas.height)
   ctx.drawImage(img, Math.floor((paperWidthDots - imgW) / 2), 0, imgW, imgH)
+  canvasCache.set(cacheKey, canvas)
   return canvas
+}
+
+/** 後台換了 logo / QR 之後要清掉，不然還會印到舊的圖 */
+export function clearPrinterImageCache() {
+  canvasCache.clear()
 }
 
 /* ═══════════════════════════════════════════════
@@ -290,6 +304,35 @@ function sendPrintRequest(request) {
   })
 }
 
+/* ═══════════════════════════════════════════════
+   開啟錢櫃
+
+   電子錢櫃是 RJ11 接在出單機背後的 DK（drawer kick）孔，本身不連網路，
+   要透過出單機送一個脈衝訊號才會彈開。所以「出單機有連上」＝「錢櫃可以開」，
+   出單機離線的話錢櫃也一定開不了，這時候要提示店員用鑰匙手動開。
+
+   channel 1 = 第一個錢櫃孔（絕大多數只接一台就是 1）
+   on/off   = 脈衝寬度（毫秒），200/200 是 Star 的建議值，太短可能推不動彈簧
+═══════════════════════════════════════════════ */
+export function openCashDrawer() {
+  return new Promise((resolve) => {
+    try {
+      const builder = new StarWebPrintBuilder()
+      const request = builder.createPeripheralElement({ channel: 1, on: 200, off: 200 })
+      const trader  = new StarWebPrintTrader({ url: getPrinterUrl(), papertype: 'normal', timeout: 4000 })
+      trader.onReceive = (resp) => resolve({ success: true, response: resp })
+      trader.onError   = (resp) => {
+        console.warn('[printer] 開錢櫃失敗', resp)
+        resolve({ success: false, error: resp })
+      }
+      trader.sendMessage({ request })
+    } catch (e) {
+      console.error('[printer] 開錢櫃指令組裝失敗', e)
+      resolve({ success: false, error: e })
+    }
+  })
+}
+
 export function printOrderReceipt(orderData) {
   return new Promise(async (resolve) => {
     let request
@@ -308,9 +351,24 @@ export function printOrderReceipt(orderData) {
 /* ═══════════════════════════════════════════════
    工作站分區出單設定（各店「此區不要印單」的開關）
 ═══════════════════════════════════════════════ */
+/* 這個設定幾乎不會變，但每次結帳都查一次資料庫等於每筆訂單多一趟往返。
+ * 快取 5 分鐘；在設定頁改動時會立刻清掉快取，不用等過期。 */
+const STATION_TTL = 5 * 60 * 1000
+let stationCache = { storeId: null, map: null, at: 0 }
+
+export function clearStationPrintCache() {
+  stationCache = { storeId: null, map: null, at: 0 }
+}
+
 export async function getStationPrintSettings() {
   const storeId = getStoreId()
   if (!storeId) return {}
+
+  const fresh = stationCache.storeId === storeId
+    && stationCache.map
+    && (Date.now() - stationCache.at) < STATION_TTL
+  if (fresh) return stationCache.map
+
   const { data, error } = await supabase
     .from('kitchen_station_settings')
     .select('station, print_enabled')
@@ -318,6 +376,7 @@ export async function getStationPrintSettings() {
   if (error) { console.error('[printer] 讀取工作站出單設定失敗', error); return {} }
   const map = {}
   for (const row of data ?? []) map[row.station] = row.print_enabled
+  stationCache = { storeId, map, at: Date.now() }
   return map
 }
 
@@ -328,6 +387,7 @@ export async function setStationPrintEnabled(station, enabled) {
     .from('kitchen_station_settings')
     .upsert({ store_id: storeId, station, print_enabled: enabled }, { onConflict: 'store_id,station' })
   if (error) { console.error('[printer] 儲存工作站出單設定失敗', error); return false }
+  clearStationPrintCache()
   return true
 }
 

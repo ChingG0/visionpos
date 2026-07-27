@@ -159,7 +159,10 @@ export const useInventoryStore = defineStore('inventory', () => {
     return true
   }
 
-  async function deductByOrder(orderId, items) {
+  /** 依訂單扣料。
+   *  refresh：扣完要不要重抓整張食材表。結帳流程用不到（點餐頁不顯示庫存），
+   *  每筆訂單都重抓等於白白多一趟往返，所以預設不抓；庫存頁自己會在開啟時讀取。 */
+  async function deductByOrder(orderId, items, { refresh = false } = {}) {
     if (!items?.length) return
     const { data: recipes } = await supabase
       .from('product_ingredient_recipes').select('*, ingredients(*)')
@@ -184,7 +187,7 @@ export const useInventoryStore = defineStore('inventory', () => {
       }
     }
     await Promise.all(updates)
-    await fetchIngredients()
+    if (refresh) await fetchIngredients()
   }
 
   return {

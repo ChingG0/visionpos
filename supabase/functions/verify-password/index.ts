@@ -76,14 +76,14 @@ serve(async (req) => {
 
     const { data: superStaff } = await supabase
       .from('staff')
-      .select('id, username, name, role, is_active, is_superadmin, password_hash, password_bcrypt')
+      .select('id, username, name, role, is_active, is_superadmin, can_closeout, password_hash, password_bcrypt')
       .eq('username', username.trim())
       .eq('is_superadmin', true)
       .maybeSingle()
 
     const { data: normalStaff } = await supabase
       .from('staff')
-      .select('id, username, name, role, is_active, is_superadmin, password_hash, password_bcrypt')
+      .select('id, username, name, role, is_active, is_superadmin, can_closeout, password_hash, password_bcrypt')
       .eq('store_id', store.id)
       .eq('username', username.trim())
       .maybeSingle()
@@ -136,6 +136,7 @@ serve(async (req) => {
         id: staffRecord.id, username: staffRecord.username,
         name: staffRecord.name, role: staffRecord.role,
         is_superadmin: staffRecord.is_superadmin,
+        can_closeout:  staffRecord.can_closeout ?? false,
       },
       store: { id: store.id, code: store.code, name: store.name }
     }), {

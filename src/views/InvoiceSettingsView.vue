@@ -150,7 +150,8 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useInvoiceBootCheck } from '@/composables/useInvoiceBootCheck.js'
-import { useInvoice } from '@/composables/useInvoice.js'
+import { useInvoice, clearInvoiceEnabledCache } from '@/composables/useInvoice.js'
+import { useStoreSettingsStore } from '@/stores/storeSettingsStore.js'
 import AppTopbar       from '@/components/layout/AppTopbar.vue'
 import SettingsSidebar from '@/components/settings/SettingsSidebar.vue'
 import { supabase }    from '@/lib/supabase.js'
@@ -251,6 +252,10 @@ async function handleSave() {
   if (error) {
     saveError.value = '儲存失敗：' + error.message
   } else {
+    // 結帳流程會快取「有沒有啟用發票」，這裡改完要立刻讓它失效，
+    // 不然新設定最慢要等 5 分鐘才生效
+    clearInvoiceEnabledCache()
+    await useStoreSettingsStore().init(true)   // 結帳畫面的載具/統編欄位也讀這份快取
     saved.value = true
     setTimeout(() => { saved.value = false }, 3000)
   }

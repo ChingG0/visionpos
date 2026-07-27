@@ -21,8 +21,24 @@
       <div v-if="authStore.isLoggedIn" class="topbar__user">
         <span class="topbar__store-name">{{ authStore.store?.name }}</span>
         <span class="topbar__user-name">{{ authStore.user?.name }}</span>
+        <!-- 錢櫃是 RJ11 接在出單機上，出單機沒連上就一定開不了，直接把按鈕停用 -->
+        <button
+          class="topbar__drawer-btn"
+          :class="{ 'topbar__drawer-btn--ok': drawerFlash }"
+          :disabled="!isPrinterOnline || openingDrawer"
+          :title="isPrinterOnline ? '開啟錢櫃' : '出單機未連線，錢櫃無法開啟'"
+          @click="handleOpenDrawer"
+        >
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2.5" y="7" width="19" height="11" rx="1.5"/>
+            <line x1="2.5" y1="11.5" x2="21.5" y2="11.5"/>
+            <line x1="9.5" y1="14.8" x2="14.5" y2="14.8"/>
+          </svg>
+          {{ drawerFlash ? '已開啟' : (openingDrawer ? '開啟中' : '錢櫃') }}
+        </button>
         <button class="topbar__shift-btn" @click="shiftKind = 'shift'">交班</button>
-        <button class="topbar__closeout-btn" @click="shiftKind = 'closeout'">關帳</button>
+        <!-- 關帳會結束整店的累計期間，沒有權限的收銀員不顯示 -->
+        <button v-if="authStore.canCloseout" class="topbar__closeout-btn" @click="shiftKind = 'closeout'">關帳</button>
       </div>
 
       <!-- Status Pill -->
@@ -79,7 +95,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { checkPrinterStatus } from '@/lib/printer.js'
+import { checkPrinterStatus, openCashDrawer } from '@/lib/printer.js'
 import PrinterSettingsModal from './PrinterSettingsModal.vue'
 import ShiftModal           from './ShiftModal.vue'
 import { useAuthStore } from '@/stores/authStore.js'
@@ -92,6 +108,27 @@ const ROLE_LABELS = { owner: '老闆', manager: '主管', cashier: '收銀員' }
 function handleLogout() {
   authStore.logout()
   router.replace({ name: 'Login' })
+}
+
+/* ── 開啟錢櫃 ─────────────────────────────────────────────────────────────
+   錢櫃走出單機的 RJ11（DK）孔，沒有自己的網路，所以出單機離線時直接停用按鈕，
+   免得店員一直按卻沒反應、以為錢櫃壞了。 */
+const openingDrawer = ref(false)
+const drawerFlash   = ref(false)
+
+async function handleOpenDrawer() {
+  if (openingDrawer.value) return
+  openingDrawer.value = true
+  const result = await openCashDrawer()
+  openingDrawer.value = false
+
+  if (result.success) {
+    drawerFlash.value = true
+    setTimeout(() => { drawerFlash.value = false }, 1500)
+  } else {
+    alert('錢櫃開啟失敗。請確認出單機電源與網路是否正常、錢櫃的 RJ11 線是否插在出單機背後的 DK 孔。\n\n急用的話可以用鑰匙手動開啟。')
+    pollPrinterStatus()   // 順便重新確認出單機狀態，讓右上角的圖示同步
+  }
 }
 
 /* ── 交班 / 關帳 ─────────────────────────────────────────────────────────
@@ -286,6 +323,31 @@ const formattedDateTime = computed(() => {
   white-space: nowrap;
 }
 .topbar__logout-btn:hover { background: #fde2e2; color: #c0392b; border-color: #f0c0b8; }
+
+/* ── 開啟錢櫃 ── */
+.topbar__drawer-btn {
+  height: 24px;
+  padding: 0 11px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-btn);
+  background: var(--color-bg-settings);
+  color: var(--color-text-brand);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.topbar__drawer-btn:hover:not(:disabled) { background: #e8dcc8; }
+.topbar__drawer-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.topbar__drawer-btn--ok {
+  background: #e1f3e1;
+  border-color: #c8e8c8;
+  color: #2f7a3d;
+  font-weight: 600;
+}
 
 /* ── 交班 / 關帳 ── */
 .topbar__shift-btn,

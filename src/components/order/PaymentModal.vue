@@ -204,8 +204,8 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { supabase } from '@/lib/supabase.js'
-import { useAuthStore } from '@/stores/authStore.js'
+import { useStoreSettingsStore } from '@/stores/storeSettingsStore.js'
+import { openCashDrawer } from '@/lib/printer.js'
 import DiscountEditModal from './DiscountEditModal.vue'
 
 const props = defineProps({
@@ -245,29 +245,15 @@ function onDiscountSave(newDiscount) {
   emit('update:discount', newDiscount)
 }
 
-const authStore = useAuthStore()
+// 付款方式與發票啟用狀態在登入時就載好了（storeSettingsStore），
+// 這裡直接同步讀取，不用等查詢回來，付款方式按鈕不會再一顆一顆跳出來。
+const settingsStore  = useStoreSettingsStore()
+const cardEnabled    = computed(() => settingsStore.cardEnabled)
+const linepayEnabled = computed(() => settingsStore.linepayEnabled)
+const invoiceEnabled = computed(() => settingsStore.invoiceEnabled)
 
-// 付款設定（從 DB 讀取）
-const cardEnabled    = ref(false)
-const linepayEnabled = ref(false)
-const invoiceEnabled = ref(false)
-
-onMounted(async () => {
-  const storeId = authStore.store?.id
-  if (!storeId) return
-
-  const [payRes, invRes] = await Promise.all([
-    supabase.from('payment_settings').select('card_enabled, linepay_enabled').eq('store_id', storeId).maybeSingle(),
-    supabase.from('invoice_settings').select('enabled').eq('store_id', storeId).maybeSingle(),
-  ])
-  if (payRes.data) {
-    cardEnabled.value    = payRes.data.card_enabled ?? false
-    linepayEnabled.value = payRes.data.linepay_enabled ?? false
-  }
-  if (invRes.data) {
-    invoiceEnabled.value = invRes.data.enabled ?? false
-  }
-})
+// 保險：萬一還沒載入過（例如重整後直接開結帳），補一次
+onMounted(() => { settingsStore.init() })
 
 const BASE_METHODS = [
   { key: 'cash',    label: '現金',     icon: '💵' },
@@ -431,6 +417,16 @@ function confirm() {
 function doEmitPaid() {
   const amount = enteredAmount.value || total.value
   const chg    = method.value === 'cash' ? Math.max(0, amount - total.value) : 0
+
+  // 現金結帳才彈錢櫃：店員按下收款時手已經在錢櫃上，要找零也要拿錢，
+  // 讓它自己開比較順。信用卡／LINE Pay／稍後付款沒有現金進出，不用開。
+  // 不 await、失敗也不擋結帳——錢櫃開不了頂多用鑰匙，不該讓訂單卡住。
+  if (method.value === 'cash') {
+    openCashDrawer().then(r => {
+      if (!r.success) console.warn('[payment] 現金結帳時錢櫃未開啟，請確認出單機與 RJ11 接線')
+    })
+  }
+
   emit('paid', {
     method:        method.value,
     methodLabel:   METHODS.value.find(m => m.key === method.value)?.label ?? method.value,

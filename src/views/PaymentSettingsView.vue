@@ -113,6 +113,7 @@ import AppTopbar       from '@/components/layout/AppTopbar.vue'
 import SettingsSidebar from '@/components/settings/SettingsSidebar.vue'
 import { supabase }    from '@/lib/supabase.js'
 import { useAuthStore } from '@/stores/authStore.js'
+import { useStoreSettingsStore } from '@/stores/storeSettingsStore.js'
 
 const authStore = useAuthStore()
 const loading   = ref(true)
@@ -148,7 +149,12 @@ async function handleSave() {
     .from('payment_settings')
     .upsert({ store_id: storeId, ...form.value, updated_at: new Date().toISOString() }, { onConflict: 'store_id' })
   if (error) saveError.value = '儲存失敗：' + error.message
-  else { saved.value = true; setTimeout(() => { saved.value = false }, 3000) }
+  else {
+    // 結帳畫面是讀快取的，這裡改完要重新載入才會立刻反映
+    await useStoreSettingsStore().init(true)
+    saved.value = true
+    setTimeout(() => { saved.value = false }, 3000)
+  }
   saving.value = false
 }
 </script>

@@ -81,6 +81,10 @@
                   <span class="sm__perm-icon">{{ perm.ok ? '✅' : '❌' }}</span>
                   <span class="sm__perm-label">{{ perm.label }}</span>
                 </div>
+                <div class="sm__perm-item">
+                  <span class="sm__perm-icon">{{ hasCloseout(selected) ? '✅' : '❌' }}</span>
+                  <span class="sm__perm-label">關帳（結束當日累計）</span>
+                </div>
               </div>
             </div>
 
@@ -123,6 +127,23 @@
               <option value="owner">老闆 — 全部權限</option>
             </select>
           </label>
+          <!-- 老闆和主管本來就一定有關帳權限，不用也不能取消；只有收銀員需要個別開關 -->
+          <label v-if="form.role === 'cashier'" class="sm__field sm__field--toggle">
+            <span>關帳權限 <em>（結束當日累計）</em></span>
+            <button
+              class="sm__toggle"
+              :class="{ 'sm__toggle--on': form.can_closeout }"
+              @click="form.can_closeout = !form.can_closeout"
+            >
+              <span class="sm__toggle-knob" />
+              <span class="sm__toggle-label">{{ form.can_closeout ? '可關帳' : '不可關帳' }}</span>
+            </button>
+          </label>
+          <div v-else class="sm__field sm__field--note">
+            <span>關帳權限</span>
+            <p class="sm__perm-note">{{ ROLE_LABELS[form.role] }}預設就有關帳權限</p>
+          </div>
+
           <label v-if="editTarget" class="sm__field sm__field--toggle">
             <span>帳號狀態</span>
             <button
@@ -218,20 +239,32 @@ onMounted(async () => {
 /* ── 新增 / 編輯 ── */
 const showForm    = ref(false)
 const editTarget  = ref(null)
+/** 老闆/主管一律有關帳權限，收銀員看 can_closeout 欄位 */
+function hasCloseout(s) {
+  if (!s) return false
+  if (s.is_superadmin) return true
+  if (['owner', 'manager'].includes(s.role)) return true
+  return s.can_closeout === true
+}
+
 const formLoading = ref(false)
 const formError   = ref('')
-const form        = ref({ name: '', username: '', password: '', role: 'cashier', is_active: true })
+const form        = ref({ name: '', username: '', password: '', role: 'cashier', is_active: true, can_closeout: false })
 
 function openAdd() {
   editTarget.value = null
-  form.value = { name: '', username: '', password: '', role: 'cashier', is_active: true }
+  form.value = { name: '', username: '', password: '', role: 'cashier', is_active: true, can_closeout: false }
   formError.value = ''
   showForm.value = true
 }
 
 function openEdit(s) {
   editTarget.value = s
-  form.value = { name: s.name, username: s.username, password: '', role: s.role, is_active: s.is_active }
+  form.value = {
+    name: s.name, username: s.username, password: '',
+    role: s.role, is_active: s.is_active,
+    can_closeout: s.can_closeout ?? false,
+  }
   formError.value = ''
   showForm.value = true
 }
@@ -380,6 +413,8 @@ function fmtDate(iso) {
 .sm__form { display: flex; flex-direction: column; gap: 10px; }
 .sm__field { display: flex; flex-direction: column; gap: 4px; }
 .sm__field--toggle { flex-direction: row; align-items: center; justify-content: space-between; }
+.sm__field--note { flex-direction: row; align-items: center; justify-content: space-between; }
+.sm__perm-note { font-size: 11.5px; color: #2f7a3d; background: #e8f3e8; padding: 3px 10px; border-radius: 999px; margin: 0; }
 .sm__field span { font-size: 12.5px; color: var(--color-text-muted); }
 .sm__field em { font-style: normal; font-size: 11px; color: #bbb; }
 .sm__field input, .sm__field select {

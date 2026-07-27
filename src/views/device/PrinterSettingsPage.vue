@@ -183,6 +183,7 @@ import {
   getHomepageUrl, setHomepageUrl,
   checkPrinterStatus, DEFAULT_LAYOUT,
   getStationPrintSettings, setStationPrintEnabled,
+  clearPrinterImageCache,
 } from '@/lib/printer.js'
 import { KITCHEN_STATIONS } from '@/constants/kitchenStations.js'
 
@@ -265,6 +266,8 @@ function handleSave() {
     removePrinterQR()
   }
   setHomepageUrl(homepageUrl.value)
+  // 換了 logo / QR 要清掉出單時的圖片快取，不然還會印到舊的
+  clearPrinterImageCache()
   saved.value = true
   setTimeout(() => { saved.value = false }, 2000)
 }
@@ -274,6 +277,7 @@ function handleReset() {
   resetPrinterLayout()
   removePrinterLogo()
   removePrinterQR()
+  clearPrinterImageCache()
   ip.value = getPrinterIp()
   Object.assign(layout, DEFAULT_LAYOUT)
   currentLogo.value  = ''
