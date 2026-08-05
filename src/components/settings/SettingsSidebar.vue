@@ -117,6 +117,7 @@ const REPORT_PAGES = [
   { key: 'discounts',    label: '折扣分析' },
   { key: 'customers',    label: '來客分析' },
   { key: 'shifts',       label: '交班紀錄' },
+  { key: 'orderlogs',    label: '點餐紀錄' },
 ]
 
 const reportsExpanded = ref(route.name === 'Reports')

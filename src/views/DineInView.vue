@@ -33,7 +33,8 @@
     <SeatOrderModal
       v-if="clickedSeat"
       :seat="clickedSeat"
-      @close="clickedSeat = null"
+      :focus-order-id="focusOrderId"
+      @close="clickedSeat = null; focusOrderId = null"
       @completed="handleOrderCompleted"
       @payment-done="handlePaymentDone"
       @add-order="handleAddOrder"
@@ -45,24 +46,44 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRouter }          from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import AppSidebar         from '@/components/layout/AppSidebar.vue'
 import AppTopbar          from '@/components/layout/AppTopbar.vue'
 import FloorMap           from '@/components/floor/FloorMap.vue'
 import ReservationPanel   from '@/components/reservation/ReservationPanel.vue'
 import SeatOrderModal     from '@/components/floor/SeatOrderModal.vue'
 import { useDineInStore } from '@/stores/dineInStore.js'
-import { markSeatsOrdered, fetchTables } from '@/lib/floorOrders.js'
+import { markSeatsOrdered, fetchTables, findItemAcrossFloors } from '@/lib/floorOrders.js'
 
 const router      = useRouter()
+const route       = useRoute()
 const dineInStore = useDineInStore()
-onMounted(() => dineInStore.init())
 
 const activeFloor         = ref('1F')
 const arrangingId         = ref(null)
 const floorMapRef         = ref(null)
 const reservationPanelRef = ref(null)
 const clickedSeat         = ref(null)   // { id, name, status, type }
+const focusOrderId        = ref(null)
+
+/* 從工作站「結帳」按鈕跳轉過來：網址帶 openSeatId（＋可選 openOrderId 指定分單）。
+ * 要先等訂單資料載完，SeatOrderModal 開起來才讀得到內容，不然會顯示「找不到訂單」。 */
+onMounted(async () => {
+  const initPromise = dineInStore.init()
+  const seatId = route.query.openSeatId
+  if (seatId) {
+    await initPromise
+    const found = await findItemAcrossFloors(seatId)
+    if (found) {
+      activeFloor.value  = found.floorId
+      clickedSeat.value  = found.item
+      focusOrderId.value = route.query.openOrderId ?? null
+    } else {
+      alert('找不到這個座位，可能已被移除或清空。')
+    }
+    router.replace({ name: 'DineIn' })
+  }
+})
 
 /* ── 安排座位流程 ── */
 function handleRequestArrange(reservationId) { arrangingId.value = reservationId }

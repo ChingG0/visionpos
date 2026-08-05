@@ -2,6 +2,15 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { supabase } from '@/lib/supabase.js'
 import { useAuthStore } from '@/stores/authStore.js'
+import { logOrderChange, summarizeItemsDiff } from '@/lib/orderChangeLog.js'
+
+/* 目前登入帳號的顯示標籤，跟 SeatOrderModal 的 currentStaffLabel 用同一套規則，
+ * 寫進 order_change_logs.staff 讓「點餐紀錄」報表看得出是誰操作的。 */
+function currentStaffLabel() {
+  const u = useAuthStore().user
+  if (!u) return null
+  return u.username ? `${u.name}（${u.username}）` : (u.name ?? null)
+}
 
 export const useDineInStore = defineStore('dineInOrders', () => {
   const activeOrders = ref({})
@@ -151,13 +160,31 @@ export const useDineInStore = defineStore('dineInOrders', () => {
     return completeOrders([orderId], seatId)
   }
 
+  /** 取消單一分單。回傳 'last'：這桌已無其他 active 訂單（可以把桌況重置成空位）；
+   *  'more'：桌上還有其他未結的分單，桌況要維持原狀，不能因為刪掉其中一張就變空位。
+   *  之前這裡固定回傳 'last'，導致刪除任何一張分單（不管桌上還有沒有其他分單）
+   *  呼叫端都會把整桌重置成空位——多分單只剩其中幾張時會整桌憑空消失。 */
   async function cancelOrder(orderId, seatId, { reason, staff }) {
+    // 取消前先留一份快照，寫進異動紀錄用（取消之後本地快取就沒有這筆了）
+    const target = (activeOrders.value[seatId] ?? []).find(o => o.id === orderId)
+
     const { error } = await supabase
       .from('dine_in_orders')
       .update({ status: 'cancelled', completed_at: new Date().toISOString(), note: `[取消] 原因：${reason}　操作：${staff}` })
       .eq('id', orderId)
     if (error) { console.error('[dineInStore] 取消失敗', error); return false }
-    return 'last'
+
+    logOrderChange({
+      storeId: getStoreId(), orderType: 'dine_in', orderId, seatName: target?.seatName,
+      action: 'cancel', staff, reason,
+      before: target ? { items: target.items, subtotal: target.subtotal, total: target.total } : null,
+    })
+
+    // 不等 Realtime 回來，直接把本地快取同步移除，避免時間差
+    removeOrder(orderId, seatId)
+
+    const remaining = activeOrders.value[seatId] ?? []
+    return remaining.length === 0 ? 'last' : 'more'
   }
 
   /** 供呼叫端在還沒等到 Realtime 回來前，先把本地快取的訂單移除
@@ -189,14 +216,26 @@ export const useDineInStore = defineStore('dineInOrders', () => {
   }
 
   /** 修改訂單內容（品項/標籤/備註/加價/折扣/金額）。
-   *  只給「還沒結帳」的訂單用，不動 status / 付款欄位。 */
+   *  只給「還沒結帳」的訂單用，不動 status / 付款欄位。
+   *  修改前的內容還留在本地快取裡（還沒 patch），拿來跟修改後比對寫進異動紀錄。 */
   async function updateOrderContent(orderId, seatId, { items, tags, note, surcharge, discount, subtotal, total }) {
+    const before = (activeOrders.value[seatId] ?? []).find(o => o.id === orderId)
+
     const { error } = await supabase
       .from('dine_in_orders')
       .update({ items, tags, note, surcharge, discount, subtotal, total })
       .eq('id', orderId)
     if (error) { console.error('[dineInStore] 修改訂單失敗', error); return false }
     patchOrderLocal(seatId, orderId, { items, tags, note, surcharge, discount, subtotal, total })
+
+    logOrderChange({
+      storeId: getStoreId(), orderType: 'dine_in', orderId, seatName: before?.seatName,
+      action: 'edit', staff: currentStaffLabel(),
+      summary: summarizeItemsDiff(before?.items, items),
+      before: before ? { items: before.items, subtotal: before.subtotal, total: before.total } : null,
+      after:  { items, subtotal, total },
+    })
+
     return true
   }
 

@@ -161,6 +161,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
 import AppTopbar   from '@/components/layout/AppTopbar.vue'
 import { useTakeoutStore } from '@/stores/takeoutStore.js'
@@ -169,8 +170,26 @@ import { TAG_COLOR_MAP }   from '@/constants/tagColors.js'
 import { printOrderReceipt } from '@/lib/printer.js'
 import PaymentModal        from '@/components/order/PaymentModal.vue'
 
+const route  = useRoute()
+const router = useRouter()
 const takeoutStore = useTakeoutStore()
 const memberStore  = useMemberStore()
+
+/* 從工作站「結帳」按鈕跳轉過來：網址帶 openOrderId。
+ * 只有「稍後付款」還沒收錢的單才需要跳出收款視窗，已經付過款的（只是還沒取餐）
+ * 這裡沒有結帳可做，就單純停留在外帶頁讓店員自己看。 */
+onMounted(async () => {
+  const orderId = route.query.openOrderId
+  if (!orderId) return
+  await takeoutStore.init()
+  const order = takeoutStore.orders.find(o => String(o.id) === String(orderId))
+  if (order && isUnpaid(order)) {
+    checkoutTarget.value = order
+  } else if (!order) {
+    alert('找不到這筆外帶訂單，可能已完成取餐或被取消。')
+  }
+  router.replace({ name: 'Takeout' })
+})
 
 /* ── 稍後付款：判斷 + 結帳收款（折扣在 PaymentModal 收款畫面裡直接調整）── */
 function isUnpaid(order) {

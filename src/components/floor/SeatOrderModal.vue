@@ -202,7 +202,11 @@ import { printOrderReceipt } from '@/lib/printer.js'
 import { supabase }          from '@/lib/supabase.js'
 import PaymentModal          from '@/components/order/PaymentModal.vue'
 
-const props = defineProps({ seat: { type: Object, required: true } })
+const props = defineProps({
+  seat: { type: Object, required: true },
+  // 從工作站「結帳」按鈕跳轉過來時，指定要直接開到哪一張分單（同桌可能有多張）
+  focusOrderId: { type: [String, Number], default: null },
+})
 const emit  = defineEmits(['close', 'completed', 'add-order', 'payment-done', 'edit-order'])
 
 const dineInStore = useDineInStore()
@@ -216,7 +220,10 @@ const activeIdx = ref(0)
 
 onMounted(() => {
   orders.value    = [...dineInStore.getOrdersBySeatId(props.seat.id)]
-  activeIdx.value = 0
+  const focusIdx  = props.focusOrderId != null
+    ? orders.value.findIndex(o => String(o.id) === String(props.focusOrderId))
+    : -1
+  activeIdx.value = focusIdx >= 0 ? focusIdx : 0
   loading.value   = false
 })
 

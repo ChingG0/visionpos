@@ -60,9 +60,14 @@
 
               <div class="ks__card-head">
                 <span class="ks__card-label" :class="`ks__card-label--${ticket.source}`">{{ ticket.label }}</span>
-                <span class="ks__card-elapsed" :class="{ 'ks__card-elapsed--warn': isLongWait(ticket.createdAt) }">
-                  {{ elapsedTime(ticket.createdAt) }}
-                </span>
+                <div class="ks__card-head-right">
+                  <span class="ks__card-elapsed" :class="{ 'ks__card-elapsed--warn': isLongWait(ticket.createdAt) }">
+                    {{ elapsedTime(ticket.createdAt) }}
+                  </span>
+                  <button v-if="isUnpaidTicket(ticket)" class="ks__checkout-btn" @click.stop="goCheckout(ticket)">
+                    結帳
+                  </button>
+                </div>
               </div>
 
               <div class="ks__items">
@@ -104,6 +109,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
 import AppTopbar   from '@/components/layout/AppTopbar.vue'
 import { useDineInStore }  from '@/stores/dineInStore.js'
@@ -112,6 +118,7 @@ import { useMenuStore }    from '@/stores/menuStore.js'
 import { KITCHEN_STATIONS } from '@/constants/kitchenStations.js'
 import { TAG_COLOR_MAP }    from '@/constants/tagColors.js'
 
+const router       = useRouter()
 const dineInStore  = useDineInStore()
 const takeoutStore = useTakeoutStore()
 const menuStore    = useMenuStore()
@@ -155,27 +162,29 @@ const allOrders = computed(() => {
   for (const seatId in dineInStore.activeOrders) {
     for (const order of dineInStore.activeOrders[seatId]) {
       list.push({
-        source:    'dine-in',
-        orderId:   order.id,
-        seatId:    order.seatId,
-        label:     `內用 ${order.seatName || order.seatId}`,
-        createdAt: order.createdAt,
-        items:     order.items ?? [],
-        tags:      order.tags  ?? [],
-        note:      order.note  ?? '',
+        source:        'dine-in',
+        orderId:       order.id,
+        seatId:        order.seatId,
+        label:         `內用 ${order.seatName || order.seatId}`,
+        createdAt:     order.createdAt,
+        items:         order.items ?? [],
+        tags:          order.tags  ?? [],
+        note:          order.note  ?? '',
+        paymentMethod: order.paymentMethod,
       })
     }
   }
 
   for (const order of takeoutStore.orders) {
     list.push({
-      source:    'takeout',
-      orderId:   order.id,
-      label:     `外帶 ${order.pickupNumber != null ? '#' + String(order.pickupNumber).padStart(2, '0') : ''}`,
-      createdAt: order.createdAt,
-      items:     order.items ?? [],
-      tags:      order.tags  ?? [],
-      note:      order.note  ?? '',
+      source:        'takeout',
+      orderId:       order.id,
+      label:         `外帶 ${order.pickupNumber != null ? '#' + String(order.pickupNumber).padStart(2, '0') : ''}`,
+      createdAt:     order.createdAt,
+      items:         order.items ?? [],
+      tags:          order.tags  ?? [],
+      note:          order.note  ?? '',
+      paymentMethod: order.paymentMethod,
     })
   }
 
@@ -214,6 +223,23 @@ const aggregateList = computed(() => {
   }
   return Object.values(map).sort((a, b) => b.qty - a.qty)
 })
+
+/* ── 結帳捷徑：只有還沒收錢（稍後付款/未付款）的單才需要，已經付過款的
+ *    只是還沒出餐/取餐，這裡沒東西好結，不顯示按鈕。跳轉後前台頁面會自己
+ *    帶著 openSeatId/openOrderId（外帶則是 openOrderId）直接開啟正確的那張單，
+ *    真正的收款動作還是在 SeatOrderModal / TakeoutView 原本那套流程完成，
+ *    這裡只負責導頁。 ── */
+function isUnpaidTicket(ticket) {
+  return !ticket.paymentMethod || ticket.paymentMethod === '稍後付款'
+}
+
+function goCheckout(ticket) {
+  if (ticket.source === 'dine-in') {
+    router.push({ name: 'DineIn', query: { openSeatId: ticket.seatId, openOrderId: ticket.orderId } })
+  } else {
+    router.push({ name: 'Takeout', query: { openOrderId: ticket.orderId } })
+  }
+}
 
 /* ── 已出餐切換：只在工作站畫面內部使用，收銀台/報表都不需要理會這個欄位 ── */
 async function toggleServed(ticket, lineId) {
@@ -339,8 +365,15 @@ function isLongWait(createdAt) {
 }
 .ks__card-label { font-size: 14px; font-weight: 600; color: var(--color-text-primary); }
 .ks__card-label--takeout { color: #8a6020; }
+.ks__card-head-right { display: flex; align-items: center; gap: 8px; }
 .ks__card-elapsed { font-size: 12.5px; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
 .ks__card-elapsed--warn { color: #e07020; font-weight: 600; }
+.ks__checkout-btn {
+  font-size: 11.5px; font-weight: 600; color: #fff;
+  background: #e07020; border: none;
+  padding: 4px 11px; border-radius: 999px; white-space: nowrap;
+}
+.ks__checkout-btn:hover { background: #c06010; }
 
 .ks__items { display: flex; flex-direction: column; gap: 4px; }
 .ks__item {

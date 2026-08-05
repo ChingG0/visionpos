@@ -20,7 +20,7 @@ async function fetchAllLayouts() {
   return data ?? []
 }
 
-async function findItemAcrossFloors(seatId) {
+export async function findItemAcrossFloors(seatId) {
   const layouts = await fetchAllLayouts()
   for (const layout of layouts) {
     const items = layout.items ?? []
