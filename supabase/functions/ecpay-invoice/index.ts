@@ -177,7 +177,10 @@ async function syncRemainCount(settings: {
     InvoiceYear:     rocYear,
     InvoiceTerm:     0, // 0=全部期別，一次抓今年所有字軌，不用自己算現在是第幾期
     UseStatus:       0, // 0=全部狀態，抓回來後自己篩「使用中」
-    InvoiceCategory: 1, // B2C
+    // 這支查詢字軌 API 屬於綠界「離線電子發票」規格，InvoiceCategory 官方文件規定
+    // 必填且固定為 4（代表離線發票），跟 B2C/B2B 無關；原本誤填 1，導致綠界那邊
+    // 查不到任何字軌資料、靜靜回傳空陣列，畫面上看起來就是「剩餘數量偵測不到」。
+    InvoiceCategory: 4,
   }, settings)
 
   if (result.RtnCode !== 1) {
@@ -194,9 +197,15 @@ async function syncRemainCount(settings: {
   const activeTracks = infoList.filter(t => Number(t.UseStatus) === 2)
 
   const remainCount = activeTracks.reduce((sum, t) => {
-    const end = parseInt(String(t.InvoiceEnd ?? '0'), 10)
-    const used = parseInt(String(t.InvoiceNo ?? t.InvoiceStart ?? '0'), 10)
-    const remain = Math.max(0, end - used)
+    const end   = parseInt(String(t.InvoiceEnd   ?? '0'), 10)
+    const start = parseInt(String(t.InvoiceStart ?? '0'), 10)
+    // 「目前已使用號碼」(InvoiceNo) 還沒開過票時綠界回傳的是空字串「""」，不是 null，
+    // 用 ?? 接不到、直接 parseInt 會變 NaN，導致這組字軌被當成無效值整個跳過（剩餘量算成 0）。
+    // 還沒用過時，起始號碼本身也還沒被消耗，所以要當作「已使用到 start-1」，
+    // 剩餘 = end − (start-1) = 整個區間的號碼數；已經開過票時維持原本邏輯：剩餘 = end − 已使用號碼。
+    const usedRaw = String(t.InvoiceNo ?? '').trim()
+    const used    = usedRaw === '' ? start - 1 : parseInt(usedRaw, 10)
+    const remain  = Math.max(0, end - used)
     return sum + (Number.isFinite(remain) ? remain : 0)
   }, 0)
 
