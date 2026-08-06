@@ -99,6 +99,22 @@
             </div>
           </div>
 
+          <!-- 時價結帳 -->
+          <div class="ps__section">
+            <div class="ps__row ps__row--toggle">
+              <div class="ps__label-group">
+                <div class="ps__method-name">⚖️ 時價結帳</div>
+                <div class="ps__method-desc">秤重商品用，結帳時輸入商品名稱與金額，不需事先建立單價</div>
+              </div>
+              <div class="ps__toggle" :class="{ 'ps__toggle--on': form.market_price_enabled }" @click="form.market_price_enabled = !form.market_price_enabled">
+                <div class="ps__toggle-thumb" />
+              </div>
+            </div>
+            <div v-if="form.market_price_enabled" class="ps__test-notice">
+              儲存後，點餐頁會多出「時價商品」分類。第一次使用時系統會自動建立這個分類。
+            </div>
+          </div>
+
           <div v-if="saved" class="ps__success">✓ 設定已儲存</div>
           <div v-if="saveError" class="ps__error">{{ saveError }}</div>
         </template>
@@ -114,6 +130,7 @@ import SettingsSidebar from '@/components/settings/SettingsSidebar.vue'
 import { supabase }    from '@/lib/supabase.js'
 import { useAuthStore } from '@/stores/authStore.js'
 import { useStoreSettingsStore } from '@/stores/storeSettingsStore.js'
+import { useMenuStore } from '@/stores/menuStore.js'
 
 const authStore = useAuthStore()
 const loading   = ref(true)
@@ -129,6 +146,7 @@ const form = ref({
   linepay_device_type:       'POS',
   linepay_device_profile_id: '',
   linepay_is_test:           true,
+  market_price_enabled:      false,
 })
 
 onMounted(async () => {
@@ -152,6 +170,13 @@ async function handleSave() {
   else {
     // 結帳畫面是讀快取的，這裡改完要重新載入才會立刻反映
     await useStoreSettingsStore().init(true)
+    // 打開時價結帳時順手把「時價商品」分類準備好，店員才不用自己去商品管理建一個。
+    // ensureMarketCategory 內部會先檢查有沒有，重複儲存不會重複建立。
+    if (form.value.market_price_enabled) {
+      const menuStore = useMenuStore()
+      await menuStore.init()
+      await menuStore.ensureMarketCategory()
+    }
     saved.value = true
     setTimeout(() => { saved.value = false }, 3000)
   }

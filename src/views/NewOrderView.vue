@@ -20,7 +20,9 @@
           <MenuItemGrid
             :items="filteredItems"
             :cart-qty-map="cartQtyMap"
+            :show-market-price-entry="showMarketPriceEntry"
             @add="handleAddItem"
+            @market-add="openMarketPriceModal(null)"
           />
           <OrderQuickActions
             :tags="tagStore.quickTags"
@@ -77,6 +79,14 @@
       @paid="handlePaymentConfirmed"
     />
 
+    <!-- 時價商品：輸入名稱（可搜尋既有）＋金額＋稅別後加入購物車 -->
+    <MarketPriceModal
+      v-if="showMarketPriceModal"
+      :preset-item="marketPricePreset"
+      @close="showMarketPriceModal = false"
+      @confirm="handleMarketPriceConfirm"
+    />
+
     <!-- 單品備註／標籤（點購物車品項空白處開啟）-->
     <ItemNoteModal
       v-if="editingLine"
@@ -103,7 +113,9 @@ import OrderCartPanel       from '@/components/order/OrderCartPanel.vue'
 import TablePickerModal     from '@/components/order/TablePickerModal.vue'
 import PaymentModal         from '@/components/order/PaymentModal.vue'
 import ItemNoteModal        from '@/components/order/ItemNoteModal.vue'
+import MarketPriceModal     from '@/components/order/MarketPriceModal.vue'
 import { useMenuStore }     from '@/stores/menuStore.js'
+import { useStoreSettingsStore } from '@/stores/storeSettingsStore.js'
 import { useTagStore }      from '@/stores/tagStore.js'
 import { useTakeoutStore }    from '@/stores/takeoutStore.js'
 import { useInventoryStore }  from '@/stores/inventoryStore.js'
@@ -112,6 +124,7 @@ import { printOrderReceipt, printKitchenTickets, getNextPickupNumber } from '@/l
 import { useDineInStore } from '@/stores/dineInStore.js'
 
 const menuStore       = useMenuStore()
+const settingsStore   = useStoreSettingsStore()
 const tagStore        = useTagStore()
 const takeoutStore    = useTakeoutStore()
 const inventoryStore  = useInventoryStore()
@@ -142,6 +155,9 @@ const filteredItems = computed(() => {
 const cartItems = ref([])
 
 function handleAddItem(item) {
+  // 時價商品沒有固定單價，點下去要先輸入這次秤出來的金額，不能直接加入購物車
+  if (item.isMarketPrice) { openMarketPriceModal(item); return }
+
   // 只跟「沒有單品標籤/備註」的那一行合併數量；已經寫過備註的那一行要保持獨立，
   // 不然同一個商品點兩份、其中一份要少冰時，備註會被硬套用到兩份上。
   const existing = cartItems.value.find(
@@ -221,6 +237,48 @@ function saveLineEdit({ tags, note }) {
 function removeEditingLine() {
   if (editingLine.value) removeItem(editingLine.value.id)
   editingLine.value = null
+}
+
+/* ── 時價商品 ─────────────────────────────────────────────────────────────
+   秤重商品：商品只存名稱、不存單價，每次結帳當下才輸入實際金額與稅別。
+   要店家在「後台 → 付款設定」打開「時價結帳」才會出現。 */
+const showMarketPriceModal = ref(false)
+const marketPricePreset    = ref(null)   // 從既有商品格點進來時帶入，從「＋時價」進來則是 null
+
+/* 目前正在看「時價商品」分類、而且店家有啟用時價結帳時，才顯示新增入口。
+ * 有輸入搜尋字串時不顯示（那時候是跨分類搜尋，不屬於任何一個分類）。 */
+const showMarketPriceEntry = computed(() => {
+  if (!settingsStore.marketPriceEnabled) return false
+  if (searchQuery.value.trim()) return false
+  return menuStore.marketCategory()?.id === activeCategoryId.value
+})
+
+function openMarketPriceModal(presetItem) {
+  marketPricePreset.value    = presetItem
+  showMarketPriceModal.value = true
+}
+
+/* 加入購物車：金額與稅別屬於「這一筆交易」，不會回寫到商品資料。
+ * 每次都獨立成一行（同樣是芭樂，這次 270、下次 315，不能合併數量）。 */
+function handleMarketPriceConfirm({ item, price, taxType, weight, unit }) {
+  showMarketPriceModal.value = false
+  marketPricePreset.value    = null
+
+  cartItems.value.push({
+    id:         `${item.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    menuItemId: item.id,
+    code:       item.code || '',
+    name:       item.name,
+    price,
+    qty:        1,
+    icon:       item.icon,
+    taxType,                 // 每筆自己選，預設免稅
+    isMarketPrice: true,     // 給收據/報表辨識用；金額是秤重當下輸入的
+    weight,                  // 選填，純紀錄用（對帳時可回頭核對幾斤賣多少錢）
+    unit,                    // 斤/包/顆/盒/克，沒填重量時為 null
+    tags:       [],
+    note:       '',
+  })
 }
 
 /* 供工作站分區出單使用：menuItemId → 商品資料（含 stations 設定） */

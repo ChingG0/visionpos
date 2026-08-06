@@ -69,7 +69,11 @@
 
         <div class="ocp__line-info ocp__line-tappable" @click="emit('edit-line', line.id)">
           <p class="ocp__line-name">{{ line.name }}</p>
-          <p class="ocp__line-unit">${{ line.price.toFixed(2) }}</p>
+          <p class="ocp__line-unit">
+            ${{ line.price.toFixed(2) }}
+            <!-- 時價商品的秤重紀錄，結帳前店員可以再核對一次 -->
+            <span v-if="line.weight && line.unit" class="ocp__line-weight">{{ line.weight }}{{ line.unit }}</span>
+          </p>
         </div>
 
         <div class="ocp__line-qty">
@@ -372,6 +376,15 @@ function tagColorOf(tag) {
 .ocp__line-unit {
   font-size: 10.5px;
   color: var(--color-text-muted);
+}
+
+.ocp__line-weight {
+  font-size: 10px;
+  color: #8a6020;
+  background: #fde8c0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  margin-left: 4px;
 }
 
 .ocp__line-total {

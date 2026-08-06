@@ -120,9 +120,11 @@ function centerTextScaled(text, totalW, scale = 1) {
   return ' '.repeat(pad) + text
 }
 
-/** 單品標籤 + 手輸備註，組成印在品名下方的那一行（沒有就回空字串）。 */
+/** 單品標籤 + 手輸備註，組成印在品名下方的那一行（沒有就回空字串）。
+ *  時價商品如果有填重量，也印在這一行，方便客人跟店家事後對帳核對。 */
 function itemExtraLine(line) {
   const parts = []
+  if (line.weight && line.unit) parts.push(`${line.weight}${line.unit}`)
   if (line.tags?.length) parts.push(line.tags.map(t => t.label).join(' '))
   if (line.note)         parts.push(line.note)
   return parts.join('　')

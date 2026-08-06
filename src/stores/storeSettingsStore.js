@@ -14,10 +14,11 @@ import { supabase } from '@/lib/supabase.js'
 import { useAuthStore } from '@/stores/authStore.js'
 
 export const useStoreSettingsStore = defineStore('storeSettings', () => {
-  const cardEnabled    = ref(false)
-  const linepayEnabled = ref(false)
-  const invoiceEnabled = ref(false)
-  const loaded         = ref(false)
+  const cardEnabled        = ref(false)
+  const linepayEnabled     = ref(false)
+  const invoiceEnabled     = ref(false)
+  const marketPriceEnabled = ref(false)
+  const loaded             = ref(false)
 
   function getStoreId() { return useAuthStore().store?.id ?? null }
 
@@ -27,12 +28,13 @@ export const useStoreSettingsStore = defineStore('storeSettings', () => {
     if (!storeId) return
     try {
       const [payRes, invRes] = await Promise.all([
-        supabase.from('payment_settings').select('card_enabled, linepay_enabled').eq('store_id', storeId).maybeSingle(),
+        supabase.from('payment_settings').select('card_enabled, linepay_enabled, market_price_enabled').eq('store_id', storeId).maybeSingle(),
         supabase.from('invoice_settings').select('enabled').eq('store_id', storeId).maybeSingle(),
       ])
-      cardEnabled.value    = payRes.data?.card_enabled    ?? false
-      linepayEnabled.value = payRes.data?.linepay_enabled ?? false
-      invoiceEnabled.value = invRes.data?.enabled         ?? false
+      cardEnabled.value        = payRes.data?.card_enabled         ?? false
+      linepayEnabled.value     = payRes.data?.linepay_enabled      ?? false
+      marketPriceEnabled.value = payRes.data?.market_price_enabled ?? false
+      invoiceEnabled.value     = invRes.data?.enabled              ?? false
       loaded.value = true
     } catch (e) {
       console.error('[storeSettingsStore] 讀取設定失敗', e)
@@ -40,11 +42,12 @@ export const useStoreSettingsStore = defineStore('storeSettings', () => {
   }
 
   function reset() {
-    cardEnabled.value    = false
-    linepayEnabled.value = false
-    invoiceEnabled.value = false
-    loaded.value         = false
+    cardEnabled.value        = false
+    linepayEnabled.value     = false
+    invoiceEnabled.value     = false
+    marketPriceEnabled.value = false
+    loaded.value             = false
   }
 
-  return { cardEnabled, linepayEnabled, invoiceEnabled, loaded, init, reset }
+  return { cardEnabled, linepayEnabled, invoiceEnabled, marketPriceEnabled, loaded, init, reset }
 })

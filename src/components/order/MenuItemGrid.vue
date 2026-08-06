@@ -8,6 +8,17 @@
 
     <!-- Grid -->
     <div class="mig__grid">
+      <!-- 時價商品分類：第一格固定是新增入口，點了才輸入名稱與金額 -->
+      <button
+        v-if="showMarketPriceEntry"
+        class="mig__card mig__card--market-add"
+        @click="emit('market-add')"
+      >
+        <span class="mig__icon">⚖️</span>
+        <span class="mig__name">＋ 時價</span>
+        <span class="mig__price">輸入名稱與金額</span>
+      </button>
+
       <button
         v-for="item in items"
         :key="item.id"
@@ -17,10 +28,11 @@
         <span v-if="qtyOf(item) > 0" class="mig__qty-badge">×{{ qtyOf(item) }}</span>
         <span class="mig__icon">{{ item.icon }}</span>
         <span class="mig__name">{{ item.name }}</span>
-        <span class="mig__price">${{ item.price }}</span>
+        <!-- 時價商品沒有固定單價，顯示「時價」取代金額 -->
+        <span class="mig__price">{{ item.isMarketPrice ? '時價' : `$${item.price}` }}</span>
       </button>
 
-      <p v-if="items.length === 0" class="mig__empty">沒有符合的品項</p>
+      <p v-if="items.length === 0 && !showMarketPriceEntry" class="mig__empty">沒有符合的品項</p>
     </div>
 
   </div>
@@ -30,9 +42,11 @@
 const props = defineProps({
   items:       { type: Array,  required: true },
   cartQtyMap:  { type: Object, default: () => ({}) },
+  // 目前顯示的是「時價商品」分類時為 true，會在第一格顯示新增入口
+  showMarketPriceEntry: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['add'])
+const emit = defineEmits(['add', 'market-add'])
 
 function qtyOf(item) {
   return props.cartQtyMap[item.id] ?? 0
@@ -91,6 +105,15 @@ function qtyOf(item) {
 .mig__card:active {
   transform: scale(0.96);
 }
+
+/* 時價新增入口：虛線框跟一般商品區隔，一眼看得出這格是「新增」不是商品 */
+.mig__card--market-add {
+  background: #fffaf2;
+  border: 1.5px dashed #e8c888;
+}
+.mig__card--market-add:hover { border-color: #e8a038; background: #fff5e4; }
+.mig__card--market-add .mig__name  { color: #8a6020; }
+.mig__card--market-add .mig__price { color: #b09070; font-size: 10.5px; }
 
 .mig__icon {
   font-size: 30px;

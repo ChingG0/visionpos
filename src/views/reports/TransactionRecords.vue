@@ -287,7 +287,13 @@
               </thead>
               <tbody>
                 <tr v-for="(line, i) in detailOrder.items ?? []" :key="i">
-                  <td>{{ line.name }}</td>
+                  <td>
+                    {{ line.name }}
+                    <!-- 時價商品的秤重紀錄，對帳時用來核對「這筆金額是幾斤」 -->
+                    <span v-if="line.weight && line.unit" class="tr__detail-weight">
+                      {{ line.weight }}{{ line.unit }}
+                    </span>
+                  </td>
                   <td class="tr__detail-num">{{ line.qty }}</td>
                   <td class="tr__detail-num">${{ fmtNum(line.price) }}</td>
                   <td class="tr__detail-num">${{ fmtNum((line.price ?? 0) * (line.qty ?? 0)) }}</td>
@@ -751,6 +757,10 @@ async function doDeleteOrder() {
 .tr__detail-table th { text-align: left; font-size: 11.5px; font-weight: 500; color: var(--color-text-muted); padding: 6px 4px; border-bottom: 1px solid #ede5d0; }
 .tr__detail-table td { padding: 6px 4px; border-bottom: 1px solid #f5f0e8; color: var(--color-text-primary); }
 .tr__detail-num { text-align: right; }
+.tr__detail-weight {
+  font-size: 11.5px; color: #8a6020; background: #fde8c0;
+  padding: 1px 7px; border-radius: 999px; margin-left: 6px;
+}
 .tr__detail-empty { text-align: center; color: var(--color-text-muted); padding: 14px 0; }
 .tr__detail-tags { display: flex; gap: 6px; flex-wrap: wrap; }
 .tr__detail-tag-pill { font-size: 11.5px; padding: 2px 9px; border-radius: 999px; background: #f0e8d8; color: #7a6030; }

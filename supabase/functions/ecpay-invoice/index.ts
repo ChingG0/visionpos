@@ -166,36 +166,9 @@ function calcSalesAndTax(items: Record<string, unknown>[], total: number, taxRat
  * 算出還剩幾號可以開，寫回 invoice_settings.remain_count（畫面上「剩餘發票號碼數」
  * 之前一直是靜態 0，沒有任何地方真的去問綠界，這裡補上）。
  */
-async function syncRemainCount(settings: {
-  store_id: string; merchant_id: string; hash_key: string; hash_iv: string; is_test: boolean
-}, supabase: ReturnType<typeof createClient>) {
-  const now = new Date()
-  const rocYear = String(now.getFullYear() - 1911)
-
-  const result = await callEcpay('/B2CInvoice/GetInvoiceWordSetting', {
-    MerchantID:      settings.merchant_id,
-    InvoiceYear:     rocYear,
-    InvoiceTerm:     0, // 0=全部期別，一次抓今年所有字軌，不用自己算現在是第幾期
-    UseStatus:       0, // 0=全部狀態，抓回來後自己篩「使用中」
-    // 這支查詢字軌 API 屬於綠界「離線電子發票」規格，InvoiceCategory 官方文件規定
-    // 必填且固定為 4（代表離線發票），跟 B2C/B2B 無關；原本誤填 1，導致綠界那邊
-    // 查不到任何字軌資料、靜靜回傳空陣列，畫面上看起來就是「剩餘數量偵測不到」。
-    InvoiceCategory: 4,
-  }, settings)
-
-  if (result.RtnCode !== 1) {
-    throw new Error(`GetInvoiceWordSetting 失敗: ${result.RtnMsg}`)
-  }
-
-  const rawInfo = result.InvoiceInfo
-  // 綠界文件的範例格式不太一致，可能是單一物件、也可能是陣列，這裡兩種都接
-  const infoList: Record<string, unknown>[] = Array.isArray(rawInfo)
-    ? rawInfo as Record<string, unknown>[]
-    : (rawInfo ? [rawInfo as Record<string, unknown>] : [])
-
+function computeRemainCount(infoList: Record<string, unknown>[]) {
   // UseStatus: 2 = 使用中，才是目前真的能拿來開票、需要看剩餘量的字軌
   const activeTracks = infoList.filter(t => Number(t.UseStatus) === 2)
-
   const remainCount = activeTracks.reduce((sum, t) => {
     const end   = parseInt(String(t.InvoiceEnd   ?? '0'), 10)
     const start = parseInt(String(t.InvoiceStart ?? '0'), 10)
@@ -208,9 +181,69 @@ async function syncRemainCount(settings: {
     const remain  = Math.max(0, end - used)
     return sum + (Number.isFinite(remain) ? remain : 0)
   }, 0)
+  return { remainCount, activeTracks }
+}
 
-  await supabase.from('invoice_settings').update({ remain_count: remainCount }).eq('store_id', settings.store_id)
-  return { remainCount, activeTrackCount: activeTracks.length }
+async function queryWordSetting(settings: {
+  merchant_id: string; hash_key: string; hash_iv: string; is_test: boolean
+}, invoiceCategory: 1 | 4) {
+  const now = new Date()
+  const rocYear = String(now.getFullYear() - 1911)
+
+  const result = await callEcpay('/B2CInvoice/GetInvoiceWordSetting', {
+    MerchantID:      settings.merchant_id,
+    InvoiceYear:     rocYear,
+    InvoiceTerm:     0, // 0=全部期別，一次抓今年所有字軌，不用自己算現在是第幾期
+    UseStatus:       0, // 0=全部狀態，抓回來後自己篩「使用中」
+    InvoiceCategory: invoiceCategory,
+  }, settings)
+
+  if (result.RtnCode !== 1) {
+    return { rtnCode: result.RtnCode, rtnMsg: result.RtnMsg, infoList: [] as Record<string, unknown>[] }
+  }
+
+  const rawInfo = result.InvoiceInfo
+  // 綠界文件的範例格式不太一致，可能是單一物件、也可能是陣列，這裡兩種都接
+  const infoList: Record<string, unknown>[] = Array.isArray(rawInfo)
+    ? rawInfo as Record<string, unknown>[]
+    : (rawInfo ? [rawInfo as Record<string, unknown>] : [])
+
+  return { rtnCode: result.RtnCode, rtnMsg: result.RtnMsg, infoList }
+}
+
+/**
+ * 剩餘發票字軌號碼數：呼叫綠界「查詢字軌」(GetInvoiceWordSetting) 取得目前
+ * 「使用中」字軌的起訖範圍(InvoiceStart/InvoiceEnd)跟目前已用到的號碼(InvoiceNo)，
+ * 算出還剩幾號可以開，寫回 invoice_settings.remain_count。
+ *
+ * InvoiceCategory 這個欄位綠界的文件前後矛盾（一般 B2C 文件說固定填 1，離線電子發票
+ * 文件說固定填 4），實測過這家店的字軌要用 4 才查得到，但保留兩種都查一次的寫法，
+ * 不寫死單一個值——之後字軌類別如果又變動，不用再回來改程式碼。 */
+async function syncRemainCount(settings: {
+  store_id: string; merchant_id: string; hash_key: string; hash_iv: string; is_test: boolean
+}, supabase: ReturnType<typeof createClient>) {
+  const [asOffline, asB2C] = await Promise.all([
+    queryWordSetting(settings, 4),
+    queryWordSetting(settings, 1),
+  ])
+
+  // 兩邊都試過，哪邊有查到「使用中」的字軌就用哪邊。
+  const offlineCalc = computeRemainCount(asOffline.infoList)
+  const b2cCalc      = computeRemainCount(asB2C.infoList)
+
+  const winner = offlineCalc.activeTracks.length > 0
+    ? { source: 'InvoiceCategory=4(離線)', ...offlineCalc }
+    : b2cCalc.activeTracks.length > 0
+      ? { source: 'InvoiceCategory=1(一般B2C)', ...b2cCalc }
+      : { source: null, remainCount: 0, activeTracks: [] as Record<string, unknown>[] }
+
+  await supabase.from('invoice_settings').update({ remain_count: winner.remainCount }).eq('store_id', settings.store_id)
+
+  return {
+    remainCount: winner.remainCount,
+    activeTrackCount: winner.activeTracks.length,
+    matchedCategory: winner.source,
+  }
 }
 
 // ── 寫入異常紀錄前先查是否已有「未解決」的同一筆紀錄，避免每天排程重複灌一樣的 alert ──

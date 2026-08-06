@@ -27,6 +27,7 @@ export const useMenuStore = defineStore('menu', () => {
       taxType: row.tax_type ?? 'taxable',
       stations: row.stations ?? [],   // 出餐工作站（可複選，例：['wok','drink']）
       tagIds:   row.tag_ids  ?? [],   // 這個商品的常用標籤（點餐時單品備註視窗會優先顯示）
+      isMarketPrice: row.is_market_price === true,  // 時價商品：不存單價，結帳時才輸入金額
     }
   }
 
@@ -38,8 +39,21 @@ export const useMenuStore = defineStore('menu', () => {
       tax_type: item.taxType ?? 'taxable',
       stations: item.stations ?? [],
       tag_ids:  item.tagIds   ?? [],
+      is_market_price: item.isMarketPrice === true,
       store_id: getStoreId(),
     }
+  }
+
+  /** 產生跨店不會撞號的 id。
+   *  menu_items / categories 的主鍵目前只有 id 一欄（沒有跟 store_id 組成複合主鍵），
+   *  舊的寫法 `i${Date.now()}` 只靠毫秒時間，兩家店在同一毫秒各自新增商品就會撞號、
+   *  導致其中一家的資料寫不進去或蓋掉別人的。時價商品是「前台結帳當下即時新增」，
+   *  多店同時新增的機率比後台建商品高得多，所以這裡把 store_id 前 8 碼一起放進 id，
+   *  不同店家的 id 前綴天生就不同，加上亂數後實質上不可能相撞。 */
+  function makeScopedId(prefix) {
+    const storeTag = (getStoreId() ?? 'nostore').replace(/-/g, '').slice(0, 8)
+    const rand     = Math.random().toString(36).slice(2, 8)
+    return `${prefix}${storeTag}-${Date.now().toString(36)}-${rand}`
   }
 
   async function init() {
@@ -90,7 +104,7 @@ export const useMenuStore = defineStore('menu', () => {
       .filter(i => i.categoryId === categoryId)
       .reduce((m, i) => Math.max(m, i.sortOrder ?? -1), -1)
     const newItem = {
-      id: `i${Date.now()}`, code: nextCode(categoryId), categoryId,
+      id: makeScopedId('i'), code: nextCode(categoryId), categoryId,
       name, cost: cost ?? 0, price: price ?? 0, icon: icon || '🍽️',
       status: true, sortOrder: maxSort + 1,
       taxType: taxType ?? 'taxable',
@@ -119,7 +133,7 @@ export const useMenuStore = defineStore('menu', () => {
         .reduce((m, i) => Math.max(m, i.sortOrder ?? -1), -1)
       const dup = {
         ...src,
-        id: `i${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        id: makeScopedId('i'),
         code: nextCode(src.categoryId),
         name: `${src.name}(複製)`,
         status: false, sortOrder: maxSort + 1,
@@ -212,13 +226,86 @@ export const useMenuStore = defineStore('menu', () => {
     return categories.value.find(c => c.id === categoryId)?.label ?? categoryId
   }
 
+  /* ── 時價商品 ─────────────────────────────────────────────────────────────
+     秤重／時價結帳用：商品只存名稱，不存單價（每次秤出來的金額都不一樣）。
+     店員在前台輸入商品名稱時即時搜尋既有的時價商品：
+       選既有的 → 沿用同一個 id（報表才彙總得起來）
+       打全新的 → 這時候才新增一筆商品
+     金額與稅別屬於「這一筆交易」，只寫進訂單品項，不回寫到商品。 */
+
+  const MARKET_CATEGORY_LABEL = '時價商品'
+
+  /** 這家店的時價商品分類（沒有的話回傳 null）。 */
+  function marketCategory() {
+    return categories.value.find(c => c.label === MARKET_CATEGORY_LABEL) ?? null
+  }
+
+  /** 取得時價商品分類，沒有就自動建立（店家在付款設定打開「時價結帳」時呼叫）。
+   *  addCategory 內部已經帶 store_id，不會跨店。 */
+  async function ensureMarketCategory() {
+    const existing = marketCategory()
+    if (existing) return existing
+    return await addCategory(MARKET_CATEGORY_LABEL)
+  }
+
+  /** 這家店已建立過的時價商品（items 本身就只裝目前登入店家的資料）。 */
+  function marketPriceItems() {
+    return items.value
+      .filter(i => i.isMarketPrice)
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+  }
+
+  /** 輸入時的即時搜尋：回傳名稱包含關鍵字的時價商品。 */
+  function searchMarketPriceItems(query) {
+    const q = (query ?? '').trim()
+    if (!q) return marketPriceItems()
+    return marketPriceItems().filter(i => i.name.includes(q))
+  }
+
+  /** 依名稱找出既有的時價商品（完全相同才算，避免「芭樂」誤配到「土芭樂」）。 */
+  function findMarketPriceItemByName(name) {
+    const trimmed = (name ?? '').trim()
+    if (!trimmed) return null
+    return marketPriceItems().find(i => i.name === trimmed) ?? null
+  }
+
+  /** 新增一筆時價商品（名稱已存在就直接回傳既有那筆，不會重複建立）。
+   *  不存單價：price/cost 一律 0，實際金額每次結帳時輸入。 */
+  async function addMarketPriceItem(name) {
+    const storeId = getStoreId()
+    const trimmed = (name ?? '').trim()
+    if (!storeId || !trimmed) return null
+
+    const existing = findMarketPriceItemByName(trimmed)
+    if (existing) return existing
+
+    const category = await ensureMarketCategory()
+    if (!category) { console.error('[menuStore] 無法建立時價商品分類'); return null }
+
+    const maxSort = items.value
+      .filter(i => i.categoryId === category.id)
+      .reduce((m, i) => Math.max(m, i.sortOrder ?? -1), -1)
+
+    const newItem = {
+      id: makeScopedId('mp'), code: '', categoryId: category.id,
+      name: trimmed, cost: 0, price: 0, icon: '⚖️',
+      status: true, sortOrder: maxSort + 1,
+      taxType: 'exempt',   // 時價商品多為生鮮農產，預設免稅；實際稅別每次結帳時選
+      stations: [], tagIds: [],
+      isMarketPrice: true,
+    }
+    items.value.push(newItem)
+    await persistItem(newItem)
+    return newItem
+  }
+
   /** 新增商品分類，回傳新分類 { id, label } 或 null */
   async function addCategory(label) {
     const storeId = getStoreId()
     const trimmed = label?.trim()
     if (!storeId || !trimmed) return null
     const maxSort = categories.value.length
-    const newId = `cat${Date.now()}`
+    const newId = makeScopedId('cat')
     const { data, error: err } = await supabase
       .from('categories')
       .insert({ id: newId, label: trimmed, sort_order: maxSort, store_id: storeId })
@@ -249,5 +336,7 @@ export const useMenuStore = defineStore('menu', () => {
     init, reset, addItem, updateItem, duplicateItems, deleteItems,
     setStatus, unpublish, publishAt, getCategoryLabel, reorderCategories, addCategory,
     setTagOnProducts, removeTagFromAllProducts, productIdsWithTag,
+    MARKET_CATEGORY_LABEL, marketCategory, ensureMarketCategory,
+    marketPriceItems, searchMarketPriceItems, findMarketPriceItemByName, addMarketPriceItem,
   }
 })
