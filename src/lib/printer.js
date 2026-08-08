@@ -24,6 +24,36 @@ function getStoreId() {
 }
 
 /* ═══════════════════════════════════════════════
+   舊設定搬移
+
+   多店隔離那次改動，把出單機設定的 localStorage 鍵從全域的
+   `visionpos:xxx` 改成依店家區分的 `visionpos:{店家代碼}:xxx`，
+   但沒有把舊資料搬過去——舊的值還躺在舊鍵裡，程式卻只讀新鍵，
+   讀不到就退回寫死的預設值，等於所有裝置的出單機設定（IP、版型、
+   Logo、QR、首頁連結）在那次改動後被靜默重置了。
+
+   這裡在讀不到新鍵時自動去看舊鍵，找到就搬過來並清掉舊的，
+   讓已經在用的裝置不用重新設定一次。
+═══════════════════════════════════════════════ */
+function readWithLegacyFallback(scopedKey, legacyKey) {
+  try {
+    const current = localStorage.getItem(scopedKey)
+    if (current !== null) return current
+
+    const legacy = localStorage.getItem(legacyKey)
+    if (legacy === null) return null
+
+    // 只有真的登入了（鍵有帶店家代碼）才搬移，否則會把舊值搬到未登入用的
+    // 那個 fallback 鍵上，等於原地打轉、之後登入還是讀不到
+    if (scopedKey !== legacyKey) {
+      localStorage.setItem(scopedKey, legacy)
+      localStorage.removeItem(legacyKey)
+    }
+    return legacy
+  } catch { return null }
+}
+
+/* ═══════════════════════════════════════════════
    IP 設定
 ═══════════════════════════════════════════════ */
 const PRINTER_IP_KEY = () => `${storePrefix()}:printerIp`
@@ -37,12 +67,34 @@ const DEFAULT_PRINTER_IP = parseIpFromUrl(
   import.meta.env.VITE_PRINTER_URL || 'http://192.168.0.100/StarWebPRNT/SendMessage'
 )
 
-export function getPrinterIp()   { try { return localStorage.getItem(PRINTER_IP_KEY()) || DEFAULT_PRINTER_IP } catch { return DEFAULT_PRINTER_IP } }
+export function getPrinterIp()   { try { return readWithLegacyFallback(PRINTER_IP_KEY(), 'visionpos:printerIp') || DEFAULT_PRINTER_IP } catch { return DEFAULT_PRINTER_IP } }
 export function setPrinterIp(ip) { try { localStorage.setItem(PRINTER_IP_KEY(), ip.trim()) } catch(e) { console.error(e) } }
 export function resetPrinterIp() { try { localStorage.removeItem(PRINTER_IP_KEY()) } catch(e) { console.error(e) } }
 
-function getPrinterUrl(override) {
-  return `http://${override || getPrinterIp()}/StarWebPRNT/SendMessage`
+/* ═══════════════════════════════════════════════
+   HTTPS 開關（每台裝置各自設定）
+
+   出單機開了自簽憑證的 HTTPS 之後，只有「這台裝置已經手動信任過那張憑證」
+   才能改用 https 連線——每台裝置信任的時間點不一樣（要各自去設定裡裝一次
+   憑證），所以這個開關存在 localStorage，是裝置層級的設定，不是全店共用，
+   不會因為某一台裝置切了 https，其他還沒裝憑證的裝置也被迫跟著切過去。
+   預設維持 false（http），舊裝置/沒特別設定的裝置行為完全不受影響。
+═══════════════════════════════════════════════ */
+const USE_HTTPS_KEY = () => `${storePrefix()}:printerUseHttps`
+
+export function getPrinterUseHttps()     { try { return localStorage.getItem(USE_HTTPS_KEY()) === '1' } catch { return false } }
+export function setPrinterUseHttps(val)  { try { localStorage.setItem(USE_HTTPS_KEY(), val ? '1' : '0') } catch(e) { console.error(e) } }
+export function resetPrinterUseHttps()   { try { localStorage.removeItem(USE_HTTPS_KEY()) } catch(e) { console.error(e) } }
+
+/**
+ * overrideIp / overrideHttps：設定頁「測試連線」用來試某個還沒儲存的組合，
+ * 不傳就一律讀目前已儲存的設定——確保真正列印/開錢櫃一定是用「已確認可用」
+ * 的那組設定，不會不小心印到還沒測試過的組合。
+ */
+function getPrinterUrl(overrideIp, overrideHttps) {
+  const useHttps = overrideHttps !== undefined ? overrideHttps : getPrinterUseHttps()
+  const scheme   = useHttps ? 'https' : 'http'
+  return `${scheme}://${overrideIp || getPrinterIp()}/StarWebPRNT/SendMessage`
 }
 
 /* ═══════════════════════════════════════════════
@@ -61,7 +113,7 @@ export const DEFAULT_LAYOUT = {
   showQR:         false,
 }
 
-export function getPrinterLayout()    { try { const s = localStorage.getItem(LAYOUT_KEY()); return s ? { ...DEFAULT_LAYOUT, ...JSON.parse(s) } : { ...DEFAULT_LAYOUT } } catch { return { ...DEFAULT_LAYOUT } } }
+export function getPrinterLayout()    { try { const s = readWithLegacyFallback(LAYOUT_KEY(), 'visionpos:printerLayout'); return s ? { ...DEFAULT_LAYOUT, ...JSON.parse(s) } : { ...DEFAULT_LAYOUT } } catch { return { ...DEFAULT_LAYOUT } } }
 export function setPrinterLayout(lay) { try { localStorage.setItem(LAYOUT_KEY(), JSON.stringify(lay)) } catch(e) { console.error(e) } }
 export function resetPrinterLayout()  { try { localStorage.removeItem(LAYOUT_KEY()) } catch(e) { console.error(e) } }
 
@@ -71,11 +123,11 @@ export function resetPrinterLayout()  { try { localStorage.removeItem(LAYOUT_KEY
 const LOGO_KEY = () => `${storePrefix()}:printerLogo`
 const QR_KEY   = () => `${storePrefix()}:printerQR`
 
-export function getPrinterLogo()     { try { return localStorage.getItem(LOGO_KEY()) || '' } catch { return '' } }
+export function getPrinterLogo()     { try { return readWithLegacyFallback(LOGO_KEY(), 'visionpos:printerLogo') || '' } catch { return '' } }
 export function setPrinterLogo(b64)  { try { localStorage.setItem(LOGO_KEY(), b64) } catch(e) { console.error(e) } }
 export function removePrinterLogo()  { try { localStorage.removeItem(LOGO_KEY()) } catch(e) { console.error(e) } }
 
-export function getPrinterQR()       { try { return localStorage.getItem(QR_KEY()) || '' } catch { return '' } }
+export function getPrinterQR()       { try { return readWithLegacyFallback(QR_KEY(), 'visionpos:printerQR') || '' } catch { return '' } }
 export function setPrinterQR(b64)    { try { localStorage.setItem(QR_KEY(), b64) } catch(e) { console.error(e) } }
 export function removePrinterQR()    { try { localStorage.removeItem(QR_KEY()) } catch(e) { console.error(e) } }
 
@@ -84,7 +136,7 @@ export function removePrinterQR()    { try { localStorage.removeItem(QR_KEY()) }
 ═══════════════════════════════════════════════ */
 const HOMEPAGE_URL_KEY = () => `${storePrefix()}:homepageUrl`
 
-export function getHomepageUrl()      { try { return localStorage.getItem(HOMEPAGE_URL_KEY()) || '' } catch { return '' } }
+export function getHomepageUrl()      { try { return readWithLegacyFallback(HOMEPAGE_URL_KEY(), 'visionpos:homepageUrl') || '' } catch { return '' } }
 export function setHomepageUrl(url)   { try { localStorage.setItem(HOMEPAGE_URL_KEY(), url.trim()) } catch(e) { console.error(e) } }
 export function removeHomepageUrl()   { try { localStorage.removeItem(HOMEPAGE_URL_KEY()) } catch(e) { console.error(e) } }
 
@@ -178,12 +230,12 @@ export function clearPrinterImageCache() {
 /* ═══════════════════════════════════════════════
    Ping 狀態
 ═══════════════════════════════════════════════ */
-export function checkPrinterStatus(testIp) {
+export function checkPrinterStatus(testIp, testHttps) {
   return new Promise((resolve) => {
     try {
       const builder = new StarWebPrintBuilder()
       const request = builder.createInitializationElement()
-      const trader  = new StarWebPrintTrader({ url: getPrinterUrl(testIp), papertype: 'normal', timeout: 4000 })
+      const trader  = new StarWebPrintTrader({ url: getPrinterUrl(testIp, testHttps), papertype: 'normal', timeout: 4000 })
       trader.onReceive = () => resolve(true)
       trader.onError   = () => resolve(false)
       trader.sendMessage({ request })

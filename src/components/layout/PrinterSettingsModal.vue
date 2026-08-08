@@ -21,11 +21,18 @@
             換了路由器、或出去外面接別的網路時，去印表機自助測試單（按住 FEED 鍵列印）上看新的 IP，填在這裡。
           </p>
 
+          <label class="psm-checkbox-label">
+            <input type="checkbox" v-model="useHttpsDraft" />
+            此裝置已信任出單機的憑證，改用 HTTPS 連線
+          </label>
+
           <button class="psm-test-btn" :disabled="testing || !ipDraft.trim()" @click="testConnection">
             {{ testing ? '測試中...' : '測試連線' }}
           </button>
           <p v-if="testResult === true" class="psm-result psm-result--ok">✓ 連線成功</p>
-          <p v-if="testResult === false" class="psm-result psm-result--bad">✗ 連線失敗，確認印表機開機、跟這台裝置在同一個網路</p>
+          <p v-if="testResult === false" class="psm-result psm-result--bad">
+            ✗ 連線失敗，確認印表機開機、跟這台裝置在同一個網路{{ useHttpsDraft ? '，或這台裝置尚未信任出單機的憑證' : '' }}
+          </p>
         </div>
 
         <div class="psm-footer">
@@ -43,32 +50,40 @@
 
 <script setup>
 import { ref } from 'vue'
-import { getPrinterIp, setPrinterIp, resetPrinterIp, checkPrinterStatus } from '@/lib/printer.js'
+import {
+  getPrinterIp, setPrinterIp, resetPrinterIp,
+  getPrinterUseHttps, setPrinterUseHttps, resetPrinterUseHttps,
+  checkPrinterStatus,
+} from '@/lib/printer.js'
 
 const emit = defineEmits(['close', 'saved'])
 
-const ipDraft    = ref(getPrinterIp())
-const testing    = ref(false)
-const testResult = ref(null)   // null | true | false
+const ipDraft       = ref(getPrinterIp())
+const useHttpsDraft = ref(getPrinterUseHttps())
+const testing       = ref(false)
+const testResult    = ref(null)   // null | true | false
 
 async function testConnection() {
   if (!ipDraft.value.trim()) return
   testing.value = true
   testResult.value = null
-  testResult.value = await checkPrinterStatus(ipDraft.value.trim())
+  testResult.value = await checkPrinterStatus(ipDraft.value.trim(), useHttpsDraft.value)
   testing.value = false
 }
 
 function save() {
   if (!ipDraft.value.trim()) return
   setPrinterIp(ipDraft.value.trim())
+  setPrinterUseHttps(useHttpsDraft.value)
   emit('saved')
   emit('close')
 }
 
 function resetDefault() {
   resetPrinterIp()
+  resetPrinterUseHttps()
   ipDraft.value = getPrinterIp()
+  useHttpsDraft.value = getPrinterUseHttps()
   testResult.value = null
 }
 </script>
@@ -154,6 +169,16 @@ function resetDefault() {
   font-size: 11.5px;
   color: #9a8868;
   line-height: 1.5;
+}
+
+.psm-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: #5a4030;
+  cursor: pointer;
+  margin-top: 4px;
 }
 
 .psm-test-btn {

@@ -13,7 +13,19 @@
           </button>
         </div>
         <p v-if="ipStatus === true"  class="ps__hint ps__hint--ok">✓ 出單機已連線</p>
-        <p v-if="ipStatus === false" class="ps__hint ps__hint--err">✗ 連線失敗，確認出單機是否開機且在同一個網路</p>
+        <p v-if="ipStatus === false" class="ps__hint ps__hint--err">
+          ✗ 連線失敗，確認出單機是否開機且在同一個網路{{ useHttps ? '，或這台裝置尚未信任出單機的憑證' : '' }}
+        </p>
+      </div>
+      <div class="ps__field">
+        <label class="ps__checkbox-label">
+          <input type="checkbox" v-model="useHttps" />
+          此裝置已信任出單機的憑證，改用 HTTPS 連線
+        </label>
+        <p class="ps__section-hint">
+          只有在出單機的設定頁已經建立自簽憑證、且這台裝置已經手動安裝並信任過那張憑證，才勾選這裡；
+          每台裝置要各自信任一次，勾選前請先測試連線確認可以連上。
+        </p>
       </div>
       <div class="ps__field">
         <label class="ps__label">紙張寬度</label>
@@ -177,6 +189,7 @@
 import { ref, reactive, watch, onMounted } from 'vue'
 import {
   getPrinterIp, setPrinterIp, resetPrinterIp,
+  getPrinterUseHttps, setPrinterUseHttps, resetPrinterUseHttps,
   getPrinterLayout, setPrinterLayout, resetPrinterLayout,
   getPrinterLogo, setPrinterLogo, removePrinterLogo,
   getPrinterQR, setPrinterQR, removePrinterQR,
@@ -202,14 +215,15 @@ async function onStationToggle(stationId, enabled) {
 }
 
 /* ── IP ── */
-const ip       = ref(getPrinterIp())
-const testing  = ref(false)
-const ipStatus = ref(null)
+const ip        = ref(getPrinterIp())
+const useHttps  = ref(getPrinterUseHttps())
+const testing   = ref(false)
+const ipStatus  = ref(null)
 
 async function testIp() {
   testing.value = true
   ipStatus.value = null
-  ipStatus.value = await checkPrinterStatus(ip.value.trim())
+  ipStatus.value = await checkPrinterStatus(ip.value.trim(), useHttps.value)
   testing.value = false
 }
 
@@ -250,6 +264,7 @@ const saved = ref(false)
 
 function handleSave() {
   setPrinterIp(ip.value.trim())
+  setPrinterUseHttps(useHttps.value)
   setPrinterLayout({ ...layout })
   if (currentLogo.value) {
     try { setPrinterLogo(currentLogo.value) } catch {
@@ -274,11 +289,13 @@ function handleSave() {
 
 function handleReset() {
   resetPrinterIp()
+  resetPrinterUseHttps()
   resetPrinterLayout()
   removePrinterLogo()
   removePrinterQR()
   clearPrinterImageCache()
   ip.value = getPrinterIp()
+  useHttps.value = getPrinterUseHttps()
   Object.assign(layout, DEFAULT_LAYOUT)
   currentLogo.value  = ''
   currentQR.value    = ''
@@ -286,8 +303,9 @@ function handleReset() {
   ipStatus.value     = null
 }
 
-watch(layout, () => { saved.value = false })
-watch(ip,    () => { saved.value = false; ipStatus.value = null })
+watch(layout,    () => { saved.value = false })
+watch(ip,        () => { saved.value = false; ipStatus.value = null })
+watch(useHttps,  () => { saved.value = false; ipStatus.value = null })
 </script>
 
 <style scoped>
