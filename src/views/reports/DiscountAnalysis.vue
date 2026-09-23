@@ -149,6 +149,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useReportsStore } from '@/stores/reportsStore.js'
+import { orderDiscountAmount } from '@/lib/orderPayment.js'
 
 const reportsStore = useReportsStore()
 // 排除「稍後付款」的未收款訂單，折扣統計只算真的收到錢的
@@ -194,12 +195,20 @@ function applyPreset(key) {
 function applyCustom() { preset.value = ''; reportsStore.fetchOrders(customStart.value, customEnd.value) }
 onMounted(() => applyPreset('today'))
 
+/* 資料表裡 discount / surcharge 存的是 jsonb 物件（{type,value} 與 {amount}），
+ * 不是金額數字。原本整頁直接拿物件跟 0 比大小、拿物件相加——物件跟數字比永遠是
+ * false，所以「有折扣的訂單」恆為 0 筆、總折扣是 NaN，整頁統計等於沒在運作。
+ * 這兩個小工具負責換算成金額，底下所有統計一律經過它們。
+ * 折扣金額跟結帳、收據、交易紀錄共用同一支公式（基數 = 小計 + 加價）。 */
+const discountOf  = o => orderDiscountAmount(o)
+const surchargeOf = o => o?.surcharge?.amount ?? 0
+
 /* ── 折扣統計 ── */
-const discountedOrders  = computed(() => orders.value.filter(o => (o.discount ?? 0) > 0))
-const noDiscountOrders  = computed(() => orders.value.filter(o => !((o.discount ?? 0) > 0)))
-const surchargeOrders   = computed(() => orders.value.filter(o => (o.surcharge ?? 0) > 0))
-const totalDiscount     = computed(() => orders.value.reduce((s, o) => s + (o.discount ?? 0), 0))
-const totalSurcharge    = computed(() => orders.value.reduce((s, o) => s + (o.surcharge ?? 0), 0))
+const discountedOrders  = computed(() => orders.value.filter(o => discountOf(o) > 0))
+const noDiscountOrders  = computed(() => orders.value.filter(o => discountOf(o) <= 0))
+const surchargeOrders   = computed(() => orders.value.filter(o => surchargeOf(o) > 0))
+const totalDiscount     = computed(() => orders.value.reduce((s, o) => s + discountOf(o), 0))
+const totalSurcharge    = computed(() => orders.value.reduce((s, o) => s + surchargeOf(o), 0))
 const totalSubtotal     = computed(() => orders.value.reduce((s, o) => s + (o.subtotal ?? 0), 0))
 const netImpact         = computed(() => totalSurcharge.value - totalDiscount.value)
 const discountRate      = computed(() => totalSubtotal.value > 0 ? (totalDiscount.value / totalSubtotal.value * 100).toFixed(1) : '0.0')
@@ -214,9 +223,9 @@ const typeDiscountRows = computed(() => {
     { typeKey: 'delivery', type: '外送',  orders: orders.value.filter(o => o.orderType === 'delivery') },
   ]
   return types.map(t => {
-    const withDiscount = t.orders.filter(o => (o.discount ?? 0) > 0)
-    const discount  = t.orders.reduce((s, o) => s + (o.discount ?? 0), 0)
-    const surcharge = t.orders.reduce((s, o) => s + (o.surcharge ?? 0), 0)
+    const withDiscount = t.orders.filter(o => discountOf(o) > 0)
+    const discount  = t.orders.reduce((s, o) => s + discountOf(o), 0)
+    const surcharge = t.orders.reduce((s, o) => s + surchargeOf(o), 0)
     return {
       typeKey: t.typeKey,
       type: t.type,
@@ -236,8 +245,8 @@ const chartData = computed(() => {
   for (const o of orders.value) {
     const key = new Date(o.completed_at).toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei' })
     if (!dayMap[key]) dayMap[key] = { discount: 0, surcharge: 0 }
-    dayMap[key].discount  += (o.discount  ?? 0)
-    dayMap[key].surcharge += (o.surcharge ?? 0)
+    dayMap[key].discount  += discountOf(o)
+    dayMap[key].surcharge += surchargeOf(o)
   }
   const result = []
   while (cur <= fin) {

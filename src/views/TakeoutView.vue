@@ -160,6 +160,7 @@
 </template>
 
 <script setup>
+import { discountAmountOf, orderDiscountAmount } from '@/lib/orderPayment.js'
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
@@ -200,9 +201,7 @@ async function handleSaveDiscount(newDiscount) {
   const order = checkoutTarget.value
   if (!order) return
   const base = (order.subtotal ?? 0) + (order.surcharge?.amount ?? 0)
-  const discountAmount = newDiscount?.value
-    ? (newDiscount.type === 'percent' ? Math.round(base * newDiscount.value / 100) : Math.min(newDiscount.value, base))
-    : 0
+  const discountAmount = discountAmountOf(newDiscount, base)
   const newTotal = Math.max(0, base - discountAmount)
   await takeoutStore.updateOrderDiscount(order.id, newDiscount, newTotal)
   checkoutTarget.value = { ...order, discount: newDiscount, total: newTotal }
@@ -221,14 +220,6 @@ async function handleCheckoutPaid({ methodLabel, paymentAmount, changeAmount, ca
   await takeoutStore.markOrderPaid(order.id, { methodLabel, paymentAmount, changeAmount, card4, carrierNum, buyerTaxId })
   await settleReceipts({ order, methodLabel, paymentAmount, changeAmount, carrierNum, buyerTaxId, printDetail })
   checkingOut.value = false
-}
-
-/* 這張訂單實際的折扣金額，跟 handleSaveDiscount 用同一套公式 */
-function orderDiscountAmount(order) {
-  const d    = order?.discount
-  const base = (order?.subtotal ?? 0) + (order?.surcharge?.amount ?? 0)
-  if (!d?.value) return 0
-  return d.type === 'percent' ? Math.round(base * d.value / 100) : Math.min(d.value, base)
 }
 
 /* 稍後付款訂單真正收到款項時才開票（跟內用 SeatOrderModal 同一套邏輯）。
@@ -282,10 +273,7 @@ async function handlePrint(order) {
   if (printingId.value) return
   printingId.value = order.id
   const surchargeAmount = order.surcharge?.amount ?? 0
-  const base = (order.subtotal ?? 0) + surchargeAmount
-  const discountAmount = order.discount?.value
-    ? (order.discount.type === 'percent' ? Math.round(base * order.discount.value / 100) : Math.min(order.discount.value, base))
-    : 0
+  const discountAmount = orderDiscountAmount(order)
   const result = await printOrderReceipt({
     pickupNumber: order.pickupNumber,
     orderType:    'takeout',

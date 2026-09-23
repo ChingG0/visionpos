@@ -193,6 +193,7 @@
 </template>
 
 <script setup>
+import { discountAmountOf, orderDiscountAmount } from '@/lib/orderPayment.js'
 import { ref, computed, onMounted } from 'vue'
 import { useDineInStore }    from '@/stores/dineInStore.js'
 import { useAuthStore }      from '@/stores/authStore.js'
@@ -236,12 +237,9 @@ const currentIsPaid = computed(() => {
 
 /* ── 金額計算 ── */
 const currentSurcharge = computed(() => currentOrder.value?.surcharge?.amount ?? 0)
-const currentDiscount  = computed(() => {
-  const d    = currentOrder.value?.discount
-  const base = (currentOrder.value?.subtotal ?? 0) + currentSurcharge.value
-  if (!d?.value) return 0
-  return d.type === 'percent' ? Math.round(base * d.value / 100) : Math.min(d.value, base)
-})
+const currentDiscount  = computed(() =>
+  discountAmountOf(currentOrder.value?.discount, (currentOrder.value?.subtotal ?? 0) + currentSurcharge.value)
+)
 
 /* ── 等候時間 ── */
 const elapsedTime = computed(() => {
@@ -261,15 +259,6 @@ function lineExtraText(line) {
   if (line.tags?.length) parts.push(line.tags.map(t => t.label).join('、'))
   if (line.note)         parts.push(line.note)
   return parts.join('　')
-}
-
-/* 算「任意一張訂單」實際折扣金額，跟 currentDiscount 用同一套公式，
- * 併單時要把每張被併訂單自己的折扣加總，所以拆成一個可重複呼叫的函式。 */
-function orderDiscountAmount(order) {
-  const d    = order?.discount
-  const base = (order?.subtotal ?? 0) + (order?.surcharge?.amount ?? 0)
-  if (!d?.value) return 0
-  return d.type === 'percent' ? Math.round(base * d.value / 100) : Math.min(d.value, base)
 }
 
 /* ── 加單（通知 DineInView 切換到新訂單模式） ── */
@@ -317,9 +306,7 @@ async function completeCurrent() {
 async function handleSaveDiscount(newDiscount) {
   if (!currentOrder.value) return
   const base = (currentOrder.value.subtotal ?? 0) + currentSurcharge.value
-  const discountAmount = newDiscount?.value
-    ? (newDiscount.type === 'percent' ? Math.round(base * newDiscount.value / 100) : Math.min(newDiscount.value, base))
-    : 0
+  const discountAmount = discountAmountOf(newDiscount, base)
   const newTotal = Math.max(0, base - discountAmount)
   await dineInStore.updateOrderDiscount(currentOrder.value.id, props.seat.id, newDiscount, newTotal)
   orders.value = [...dineInStore.getOrdersBySeatId(props.seat.id)]
@@ -529,10 +516,7 @@ async function handlePrint() {
   printing.value = true
   const o = currentOrder.value
   const surchargeAmount = o.surcharge?.amount ?? 0
-  const base = (o.subtotal ?? 0) + surchargeAmount
-  const discountAmount = o.discount?.value
-    ? (o.discount.type === 'percent' ? Math.round(base * o.discount.value / 100) : Math.min(o.discount.value, base))
-    : 0
+  const discountAmount = orderDiscountAmount(o)
   await printOrderReceipt({
     pickupNumber: null, orderType: 'dine-in', tableName: props.seat.name,
     items: o.items ?? [], tags: o.tags ?? [], note: o.note ?? '',

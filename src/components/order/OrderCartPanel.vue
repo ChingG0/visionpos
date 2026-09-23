@@ -146,6 +146,7 @@
 </template>
 
 <script setup>
+import { discountAmountOf } from '@/lib/orderPayment.js'
 import { computed } from 'vue'
 import { TAG_COLOR_MAP } from '@/constants/tagColors.js'
 
@@ -175,14 +176,9 @@ const subtotal = computed(() =>
 
 const surchargeAmount = computed(() => props.surcharge?.amount ?? 0)
 
-const discountAmount = computed(() => {
-  if (!props.discount || !props.discount.value) return 0
-  const base = subtotal.value + surchargeAmount.value
-  if (props.discount.type === 'percent') {
-    return Math.round(base * (props.discount.value / 100))
-  }
-  return Math.min(props.discount.value, base)
-})
+const discountAmount = computed(() =>
+  discountAmountOf(props.discount, subtotal.value + surchargeAmount.value)
+)
 
 const discountLabel = computed(() => {
   if (!props.discount) return ''

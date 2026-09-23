@@ -83,7 +83,7 @@
               <td class="tr__td tr__td--items tr__td--clickable">{{ summarizeItems(order.items) }}</td>
               <td class="tr__td tr__td--num">${{ fmtNum(order.subtotal) }}</td>
               <td class="tr__td tr__td--num tr__td--discount">
-                {{ discountAmount(order) > 0 ? `-$${fmtNum(discountAmount(order))}` : '—' }}
+                {{ orderDiscountAmount(order) > 0 ? `-$${fmtNum(orderDiscountAmount(order))}` : '—' }}
               </td>
               <td class="tr__td tr__td--num tr__td--total">${{ fmtNum(order.total) }}</td>
               <td class="tr__td">
@@ -327,8 +327,8 @@
               <div v-if="detailOrder.surcharge?.amount" class="tr__detail-row">
                 <span>加價</span><span>+${{ fmtNum(detailOrder.surcharge.amount) }}</span>
               </div>
-              <div v-if="discountAmount(detailOrder) > 0" class="tr__detail-row tr__detail-row--disc">
-                <span>折扣</span><span>-${{ fmtNum(discountAmount(detailOrder)) }}</span>
+              <div v-if="orderDiscountAmount(detailOrder) > 0" class="tr__detail-row tr__detail-row--disc">
+                <span>折扣</span><span>-${{ fmtNum(orderDiscountAmount(detailOrder)) }}</span>
               </div>
               <div class="tr__detail-row tr__detail-row--total"><span>總計</span><span>${{ fmtNum(detailOrder.total) }}</span></div>
             </div>
@@ -370,7 +370,7 @@ import { useReportsStore } from '@/stores/reportsStore.js'
 import { supabase } from '@/lib/supabase.js'
 import { useAuthStore } from '@/stores/authStore.js'
 import { printInvoiceReceipt, printTransactionDetail } from '@/lib/printer.js'
-import { isUnpaidOrder } from '@/lib/orderPayment.js'
+import { isUnpaidOrder, orderDiscountAmount } from '@/lib/orderPayment.js'
 
 const reportsStore = useReportsStore()
 const authStore    = useAuthStore()
@@ -507,12 +507,7 @@ function summarizeItems(items) {
 const detailOrder = ref(null)
 function openDetail(order) { detailOrder.value = order }
 
-function discountAmount(order) {
-  if (!order.discount?.value) return 0
-  const base = order.subtotal ?? 0
-  if (order.discount.type === 'percent') return Math.round(base * order.discount.value / 100)
-  return Math.min(order.discount.value, base)
-}
+
 
 // ── 補印 ──────────────────────────────────────────────────────────────────────
 const reprintingId = ref(null)
@@ -566,7 +561,7 @@ async function handlePrintDetail(order) {
     items:           order.items ?? [],
     subtotal:        order.subtotal ?? 0,
     surchargeAmount: order.surcharge?.amount ?? 0,
-    discountAmount:  discountAmount(order),
+    discountAmount:  orderDiscountAmount(order),
     total:           order.total ?? 0,
     paymentLabel:    paid ? order.payment_method : null,
     paymentAmount:   order.payment_amount ?? order.total ?? 0,

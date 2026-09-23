@@ -102,6 +102,7 @@
 </template>
 
 <script setup>
+import { discountAmountOf } from '@/lib/orderPayment.js'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppSidebar          from '@/components/layout/AppSidebar.vue'
@@ -420,13 +421,9 @@ const subtotal = computed(() =>
   cartItems.value.reduce((s, l) => s + l.price * l.qty, 0)
 )
 const surchargeAmount = computed(() => surcharge.value?.amount ?? 0)
-const discountAmount = computed(() => {
-  if (!discount.value?.value) return 0
-  const base = subtotal.value + surchargeAmount.value
-  return discount.value.type === 'percent'
-    ? Math.round(base * (discount.value.value / 100))
-    : Math.min(discount.value.value, base)
-})
+const discountAmount = computed(() =>
+  discountAmountOf(discount.value, subtotal.value + surchargeAmount.value)
+)
 const total = computed(() =>
   Math.max(0, subtotal.value + surchargeAmount.value - discountAmount.value)
 )

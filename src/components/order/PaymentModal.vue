@@ -213,6 +213,7 @@
 </template>
 
 <script setup>
+import { discountAmountOf } from '@/lib/orderPayment.js'
 import { ref, computed, onMounted } from 'vue'
 import { useStoreSettingsStore } from '@/stores/storeSettingsStore.js'
 import { openCashDrawer, getPrintDetailDefault, setPrintDetailDefault } from '@/lib/printer.js'
@@ -236,11 +237,7 @@ const showDiscountEditor = ref(false)
 const total = computed(() => {
   if (!props.allowDiscountEdit) return props.total
   const base = props.subtotal + props.surchargeAmount
-  const d = localDiscount.value
-  const discountAmount = d?.value
-    ? (d.type === 'percent' ? Math.round(base * d.value / 100) : Math.min(d.value, base))
-    : 0
-  return Math.max(0, base - discountAmount)
+  return Math.max(0, base - discountAmountOf(localDiscount.value, base))
 })
 
 const discountStatusLabel = computed(() => {
