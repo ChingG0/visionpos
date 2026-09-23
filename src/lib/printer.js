@@ -185,10 +185,13 @@ function centerTextScaled(text, totalW, scale = 1) {
 }
 
 /** 單品標籤 + 手輸備註，組成印在品名下方的那一行（沒有就回空字串）。
- *  時價商品如果有填重量，也印在這一行，方便客人跟店家事後對帳核對。 */
-function itemExtraLine(line) {
+ *
+ *  includeWeight：時價商品的重量要不要一起印。結帳收據要（客人當場核對幾斤多少錢），
+ *  交易明細不要——明細上只有重量沒有標籤備註時，那行會變成孤零零一個「9顆」吊在
+ *  品名底下，版面看起來像壞掉。 */
+function itemExtraLine(line, includeWeight = true) {
   const parts = []
-  if (line.weight && line.unit) parts.push(`${line.weight}${line.unit}`)
+  if (includeWeight && line.weight && line.unit) parts.push(`${line.weight}${line.unit}`)
   if (line.tags?.length) parts.push(line.tags.map(t => t.label).join(' '))
   if (line.note)         parts.push(line.note)
   return parts.join('　')
@@ -825,7 +828,7 @@ export async function printInvoiceReceipt(inv, opts = {}) {
     // （不用 padLine 左右平均分散）。
     if (inv.buyerTaxId) {
       req += builder.createFeedElement({ unit: 15 })
-      req += builder.createTextElement({ width: 1, height: 1, ...bigText(`應稅銷售額:${Math.round(inv.salesAmount ?? 0)}　稅額:${Math.round(inv.taxAmount ?? 0)}\n`) })
+      req += builder.createTextElement({ width: 1, height: 1, ...bigText(`${salesAmountLabel(inv.items)}:${Math.round(inv.salesAmount ?? 0)}　稅額:${Math.round(inv.taxAmount ?? 0)}\n`) })
     }
 
     // ── 交易明細：接在證明聯下面、同一張紙印，中間用虛線隔開，最後才一起裁紙 ──────
@@ -863,8 +866,25 @@ export async function printInvoiceReceipt(inv, opts = {}) {
    沒啟用發票的店家，或載具存雲端不印證明聯時，也可以單獨印這一張。
 ═══════════════════════════════════════════════ */
 
-/** 稅別代碼：財政部證明聯／明細上的慣用標示（應稅 TX／免稅 FR／零稅率 ZR）*/
-const TAX_CODE = { taxable: 'TX', exempt: 'FR', zero: 'ZR' }
+/**
+ * 銷售額那一行該印哪個標籤。原本寫死「應稅銷售額」，免稅商品（例如生鮮農產）
+ * 的單也會被標成應稅——稅額明明是 0，標籤卻說應稅，在稅務憑證上是錯的標示。
+ *
+ * 依訂單內所有品項的課稅別判斷，跟後端 ecpay-invoice 決定發票 TaxType 的規則
+ * 一致：全部同一種就用那一種，混在一起就是混合稅率。沒有品項資料時退回應稅
+ * （跟後端 itemTaxCode 對缺欄位的舊訂單一樣的處理）。
+ */
+function salesAmountLabel(items) {
+  const kinds = new Set((items ?? []).map(i =>
+    i?.taxType === 'exempt' ? 'exempt' : i?.taxType === 'zero' ? 'zero' : 'taxable'
+  ))
+  if (kinds.size === 0) return '應稅銷售額'
+  if (kinds.size > 1)   return '混合稅率銷售額'
+  const only = [...kinds][0]
+  if (only === 'exempt') return '免稅銷售額'
+  if (only === 'zero')   return '零稅率銷售額'
+  return '應稅銷售額'
+}
 
 /** 靠左填滿到指定顯示寬度（中文字算 2 格）*/
 function padRight(text, width) {
@@ -879,8 +899,8 @@ function padLeft(text, width) {
 /** 明細表格的四欄欄寬，加起來剛好等於整行可印字元數 */
 function detailColumns(LINE_W) {
   return LINE_W >= 46
-    ? { name: 20, qty: 7, price: 8, amt: 11 }   // 80mm
-    : { name: 10, qty: 5, price: 6, amt: 9  }   // 58mm
+    ? { name: 22, qty: 7, price: 8, amt: 9 }   // 80mm
+    : { name: 12, qty: 5, price: 6, amt: 7 }   // 58mm
 }
 
 function detailTimeString(value) {
@@ -968,7 +988,7 @@ function buildTransactionDetailBlock(builder, detail, LINE_W) {
     const qty    = item.qty ?? 0
     const price  = Math.round(item.price ?? 0)
     const amount = Math.round(price * qty)
-    const amtStr = `${amount}${TAX_CODE[item.taxType] ?? ''}`
+    const amtStr = String(amount)
     const name   = item.name ?? ''
 
     // 品名太長就自己占一行，數字欄下一行再對齊印，這樣欄位不會被擠歪、也不會截斷品名
@@ -979,8 +999,8 @@ function buildTransactionDetailBlock(builder, detail, LINE_W) {
       req += line(padRight(name, cols.name) + padLeft(String(qty), cols.qty) + padLeft(String(price), cols.price) + padLeft(amtStr, cols.amt) + '\n')
     }
 
-    // 單品標籤／手輸備註／時價秤重，縮排印在品名下一行（跟結帳收據同一套）
-    const extra = itemExtraLine(item)
+    // 單品標籤／手輸備註縮排印在品名下一行；重量不印（見 itemExtraLine 註解）
+    const extra = itemExtraLine(item, false)
     if (extra) req += line(`  ${extra}\n`)
   }
 
@@ -1011,7 +1031,7 @@ function buildTransactionDetailBlock(builder, detail, LINE_W) {
   // ── 稅額（有開發票才印；沒發票就沒有應稅銷售額/稅額可言）──────────────────────
   if (detail.salesAmount != null || detail.taxAmount != null) {
     req += line('\n')
-    req += line(padLeft('應稅銷售額', LINE_W - cols.amt) + padLeft(String(Math.round(detail.salesAmount ?? 0)), cols.amt) + '\n')
+    req += line(padLeft(salesAmountLabel(items), LINE_W - cols.amt) + padLeft(String(Math.round(detail.salesAmount ?? 0)), cols.amt) + '\n')
     req += line(padLeft('稅　　額',   LINE_W - cols.amt) + padLeft(String(Math.round(detail.taxAmount   ?? 0)), cols.amt) + '\n')
     req += line(padLeft('總　　計',   LINE_W - cols.amt) + padLeft(String(Math.round(detail.total       ?? 0)), cols.amt) + '\n')
   }
