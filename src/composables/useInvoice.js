@@ -174,13 +174,22 @@ export function useInvoice() {
   async function finalizeCheckout({ id, orderType, items, total, buyerTaxId, carrierNum, printDetail, detail }) {
     if (!id) return { ok: false, error: '缺少訂單編號' }
 
+    const wantDetail = printDetail === true
+    let settings     = null
+    let detailDone   = false
+
+    /* 明細單獨印一張（沒有發票號碼與稅額區）。開票失敗或這家店沒啟用發票時用。 */
+    async function printDetailAlone() {
+      if (detailDone) return
+      detailDone = true
+      await printTransactionDetail(toDetailPayload(detail ?? {}, settings, null))
+    }
+
     try {
-      const settings = await loadSettings()
+      settings = await loadSettings()
 
       if (!settings?.enabled) {
-        if (printDetail === true) {
-          await printTransactionDetail(toDetailPayload(detail ?? {}, settings, null))
-        }
+        if (wantDetail) await printDetailAlone()
         return { ok: true, invoiceSkipped: true }
       }
 
@@ -188,9 +197,19 @@ export function useInvoice() {
         id, orderType, items, total, buyerTaxId, carrierNum, printDetail, detail,
       })
       if (res?.warning) console.warn('[invoice]', res.warning)
+
+      // 開票失敗時 issueInvoice 會提早 return，交易明細也跟著沒印。但明細只是這筆
+      // 訂單的品項清單，跟發票開不開得成無關——客人正站在櫃台等這張單，該印還是要
+      // 印給他，只是上面不會有發票號碼跟稅額那一段。發票之後再到交易紀錄補開。
+      if (!res?.ok && wantDetail) await printDetailAlone()
+
       return res
     } catch (e) {
       console.error('[invoice] 結帳憑證處理失敗', e)
+      // 同上：整段掛掉也不該讓客人連明細都拿不到
+      if (wantDetail) {
+        try { await printDetailAlone() } catch (err) { console.error('[invoice] 明細列印失敗', err) }
+      }
       return { ok: false, error: '結帳憑證處理失敗' }
     }
   }

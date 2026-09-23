@@ -45,14 +45,21 @@
                 格式錯誤：手機條碼須為「/」開頭共8碼，或自然人憑證為2位大寫字母+14位數字
               </div>
             </template>
-            <!-- 交易明細開關：勾了才印逐項明細（有開發票的話會接在證明聯後面同一張紙）-->
+            <!-- 交易明細開關：勾了才印逐項明細（有開發票的話會接在證明聯後面同一張紙）。
+                 稍後付款還沒收到錢，沒有收款金額與找零可印，開關變灰不能按。-->
             <button
               class="pm-detail-toggle"
-              :class="{ 'pm-detail-toggle--on': printDetail }"
-              :title="printDetail ? '結帳後會列印交易明細' : '結帳後不印交易明細'"
+              :class="{
+                'pm-detail-toggle--on':       printDetail && !isDefer,
+                'pm-detail-toggle--disabled': isDefer,
+              }"
+              :disabled="isDefer"
+              :title="isDefer
+                ? '稍後付款尚未收款，無法列印交易明細；實際收款結帳時可再選擇'
+                : (printDetail ? '結帳後會列印交易明細' : '結帳後不印交易明細')"
               @click="togglePrintDetail"
             >
-              <span class="pm-detail-box">{{ printDetail ? '✓' : '' }}</span>
+              <span class="pm-detail-box">{{ printDetail && !isDefer ? '✓' : '' }}</span>
               印明細
             </button>
             <div class="pm-total-label">總計</div>
@@ -296,7 +303,13 @@ const card4Error  = ref(false)
 /* 是否列印交易明細。預設沿用這台裝置上次的選擇（店家習慣通常固定），
  * 店員可以針對這一筆改。稍後付款沒有實際收款，呼叫端不會印。 */
 const printDetail = ref(getPrintDetailDefault())
+
+/* 稍後付款這一刻還沒收到錢，明細上的「現金/找零」無從印起，所以開關停用。
+ * 這裡只是不讓它生效，不動 printDetail 的值——店員切回現金時原本的選擇還在。 */
+const isDefer = computed(() => method.value === 'defer')
+
 function togglePrintDetail() {
+  if (isDefer.value) return
   printDetail.value = !printDetail.value
   setPrintDetailDefault(printDetail.value)
 }
@@ -450,7 +463,7 @@ function doEmitPaid() {
     card4:         method.value === 'card' ? card4.value : null,
     carrierNum:    carrierMode.value === 'carrier' ? carrierNum.value : null,
     buyerTaxId:    carrierMode.value === 'taxid'   ? buyerTaxId.value : null,
-    printDetail:   printDetail.value,
+    printDetail:   isDefer.value ? false : printDetail.value,
   })
 }
 </script>
@@ -475,6 +488,8 @@ function doEmitPaid() {
 .pm-detail-toggle--on { color: #fff; border-color: #e8a038; background: rgba(232,160,56,0.18); }
 .pm-detail-box { width: 15px; height: 15px; border-radius: 4px; border: 1.5px solid rgba(255,255,255,0.3); display: flex; align-items: center; justify-content: center; font-size: 11px; line-height: 1; }
 .pm-detail-toggle--on .pm-detail-box { background: #e8a038; border-color: #e8a038; color: #fff; }
+.pm-detail-toggle--disabled { opacity: 0.35; cursor: not-allowed; }
+.pm-detail-toggle--disabled:hover { background: rgba(255,255,255,0.06); }
 .pm-total-label { font-size: 13px; color: #888; }
 .pm-total { font-size: 26px; font-weight: 700; color: #fff; }
 .pm-tabs { display: flex; padding: 10px 12px 0; gap: 6px; }
