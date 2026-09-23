@@ -527,7 +527,7 @@ function restoreCart(snap) {
   return true
 }
 
-async function handlePaymentConfirmed({ method, methodLabel, paymentAmount, changeAmount, card4, carrierNum, buyerTaxId }) {
+async function handlePaymentConfirmed({ method, methodLabel, paymentAmount, changeAmount, card4, carrierNum, buyerTaxId, printDetail }) {
   if (isProcessingPayment.value) return
   isProcessingPayment.value = true
   showPaymentModal.value = false
@@ -538,7 +538,7 @@ async function handlePaymentConfirmed({ method, methodLabel, paymentAmount, chan
   clearCart()
 
   try {
-    await handlePaymentConfirmedInner({ method, methodLabel, paymentAmount, changeAmount, card4, carrierNum, buyerTaxId }, snap)
+    await handlePaymentConfirmedInner({ method, methodLabel, paymentAmount, changeAmount, card4, carrierNum, buyerTaxId, printDetail }, snap)
   } catch (e) {
     console.error('[checkout] 結帳失敗', e)
     const restored = restoreCart(snap)
@@ -550,7 +550,7 @@ async function handlePaymentConfirmed({ method, methodLabel, paymentAmount, chan
   }
 }
 
-async function handlePaymentConfirmedInner({ method, methodLabel, paymentAmount, changeAmount, card4, carrierNum, buyerTaxId }, snap) {
+async function handlePaymentConfirmedInner({ method, methodLabel, paymentAmount, changeAmount, card4, carrierNum, buyerTaxId, printDetail }, snap) {
   const isDefer   = (method === 'defer')
   const isTakeout = snap.orderType === 'takeout'
 
@@ -629,23 +629,32 @@ async function handlePaymentConfirmedInner({ method, methodLabel, paymentAmount,
     menuItemsById: menuItemsById.value,
   })
 
-  // 電子發票（有啟用才開，稍後付款不開票）。整段都不擋畫面，購物車早就清空了。
+  // 電子發票 + 交易明細（稍後付款兩者都不做：錢還沒收到，沒有付款金額可印，
+  // 等真正收款時 SeatOrderModal / TakeoutView 會再走一次）。
+  // 整段都不擋畫面，購物車早就清空了。
   if (!isDefer) {
     const { useInvoice } = await import('@/composables/useInvoice.js')
-    const { isInvoiceEnabled, issueInvoice } = useInvoice()
-    if (await isInvoiceEnabled()) {
-      // fire-and-forget；若綠界條碼尚未就緒只在 console 提醒，不彈窗打斷結帳
-      issueInvoice({
-        id:        savedOrder.id,
-        orderType: isTakeout ? 'takeout' : 'dine_in',
-        items:     snap.items,
-        total:     snap.total,
-        buyerTaxId,
-        carrierNum,
-      }).then(res => {
-        if (res?.warning) console.warn('[invoice]', res.warning)
-      })
-    }
+    const { finalizeCheckout } = useInvoice()
+    // fire-and-forget；若綠界條碼尚未就緒只在 console 提醒，不彈窗打斷結帳
+    finalizeCheckout({
+      id:        savedOrder.id,
+      orderType: isTakeout ? 'takeout' : 'dine_in',
+      items:     snap.items,
+      total:     snap.total,
+      buyerTaxId,
+      carrierNum,
+      printDetail,
+      detail: {
+        items:           snap.items,
+        subtotal:        snap.subtotal,
+        surchargeAmount: snap.surchargeAmount,
+        discountAmount:  snap.discountAmount,
+        total:           snap.total,
+        paymentLabel:    methodLabel,
+        paymentAmount,
+        changeAmount,
+      },
+    })
   }
 }
 </script>

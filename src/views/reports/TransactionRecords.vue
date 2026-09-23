@@ -55,14 +55,15 @@
             <th class="tr__th">作廢</th>
             <th class="tr__th">刪除</th>
             <th class="tr__th">補印</th>
+            <th class="tr__th">明細</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="reportsStore.loading">
-            <td colspan="16" class="tr__empty">載入中...</td>
+            <td colspan="17" class="tr__empty">載入中...</td>
           </tr>
           <tr v-else-if="filtered.length === 0">
-            <td colspan="16" class="tr__empty">此期間無交易紀錄</td>
+            <td colspan="17" class="tr__empty">此期間無交易紀錄</td>
           </tr>
           <template v-else>
             <tr v-for="order in filtered" :key="order.id" class="tr__row" @click="openDetail(order)">
@@ -137,6 +138,16 @@
                   {{ reprintingId === order.id ? '列印中...' : '補印' }}
                 </button>
                 <span v-else class="tr__td--muted">—</span>
+              </td>
+              <!-- 交易明細（每筆都能印，不像發票補印只有開過票的才有）-->
+              <td class="tr__td">
+                <button
+                  class="tr__detail-btn"
+                  :disabled="detailPrintingId === order.id"
+                  @click.stop="handlePrintDetail(order)"
+                >
+                  {{ detailPrintingId === order.id ? '列印中...' : '印明細' }}
+                </button>
               </td>
             </tr>
           </template>
@@ -337,6 +348,13 @@
           </div>
 
           <div class="tr__detail-footer">
+            <button
+              class="tr__detail-print-btn"
+              :disabled="detailPrintingId === detailOrder.id"
+              @click="handlePrintDetail(detailOrder)"
+            >
+              {{ detailPrintingId === detailOrder.id ? '列印中...' : '🖨 列印交易明細' }}
+            </button>
             <button class="tr__detail-close-btn" @click="detailOrder = null">關閉</button>
           </div>
         </div>
@@ -351,7 +369,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useReportsStore } from '@/stores/reportsStore.js'
 import { supabase } from '@/lib/supabase.js'
 import { useAuthStore } from '@/stores/authStore.js'
-import { printInvoiceReceipt } from '@/lib/printer.js'
+import { printInvoiceReceipt, printTransactionDetail } from '@/lib/printer.js'
 import { isUnpaidOrder } from '@/lib/orderPayment.js'
 
 const reportsStore = useReportsStore()
@@ -387,6 +405,20 @@ const typeFilter  = ref('all')
 
 // 發票對照表 { order_id: invoice }
 const invoiceMap = ref({})
+
+// 交易明細上的抬頭與機號。跟日期無關，整頁只查一次就夠。
+const invoiceMeta = ref({ companyName: '', posId: '' })
+
+async function fetchInvoiceMeta() {
+  const storeId = authStore.store?.id
+  if (!storeId) return
+  const { data } = await supabase
+    .from('invoice_settings')
+    .select('company_name, pos_id')
+    .eq('store_id', storeId)
+    .maybeSingle()
+  invoiceMeta.value = { companyName: data?.company_name ?? '', posId: data?.pos_id ?? '' }
+}
 
 async function fetchInvoices(start, end) {
   const storeId = authStore.store?.id
@@ -426,7 +458,10 @@ function applyCustom() {
   fetchInvoices(customStart.value, customEnd.value)
 }
 
-onMounted(() => applyPreset('today'))
+onMounted(() => {
+  applyPreset('today')
+  fetchInvoiceMeta()
+})
 
 const filtered = computed(() => {
   if (typeFilter.value === 'all') return reportsStore.orders
@@ -505,6 +540,43 @@ async function handleReprint(order, invoice) {
 
   if (!result.success) alert('補印失敗，請確認出單機連線。')
   reprintingId.value = null
+}
+
+// ── 補印交易明細 ──────────────────────────────────────────────────────────────
+// 跟發票補印不同，這張每一筆都印得出來（沒開發票的訂單也能印，只是少了發票號碼
+// 跟稅額那一段）。時間印的是這筆訂單「當初結帳的時間」，不是現在，不然對帳會錯。
+const detailPrintingId = ref(null)
+
+async function handlePrintDetail(order) {
+  if (!order || detailPrintingId.value) return
+  detailPrintingId.value = order.id
+
+  // 已作廢的發票號碼不印上去——那張票已經沒有效力，印出來只會讓人以為還算數
+  const inv      = invoiceMap.value[order.id]
+  const validInv = inv && inv.status !== 'void' ? inv : null
+
+  // 「稍後付款」的單其實還沒收到錢，沒有收款金額與找零可印，整個收款區塊跳過
+  const paid = !isUnpaidOrder(order)
+
+  const result = await printTransactionDetail({
+    companyName:     invoiceMeta.value.companyName,
+    posId:           invoiceMeta.value.posId,
+    invoiceNumber:   validInv?.invoice_number ?? null,
+    transactionTime: order.completed_at,
+    items:           order.items ?? [],
+    subtotal:        order.subtotal ?? 0,
+    surchargeAmount: order.surcharge?.amount ?? 0,
+    discountAmount:  discountAmount(order),
+    total:           order.total ?? 0,
+    paymentLabel:    paid ? order.payment_method : null,
+    paymentAmount:   order.payment_amount ?? order.total ?? 0,
+    changeAmount:    order.change_amount ?? 0,
+    salesAmount:     validInv?.sales_amount ?? null,
+    taxAmount:       validInv?.tax_amount ?? null,
+  })
+
+  if (!result.success) alert('列印失敗，請確認出單機連線。')
+  detailPrintingId.value = null
 }
 
 // ── 作廢 ──────────────────────────────────────────────────────────────────────
@@ -772,7 +844,13 @@ async function doDeleteOrder() {
 .tr__detail-info { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--color-text-secondary); background: #faf5ec; border-radius: 8px; padding: 10px 12px; }
 .tr__detail-info div { display: flex; justify-content: space-between; }
 .tr__detail-info strong { color: var(--color-text-primary); font-family: monospace; }
-.tr__detail-footer { padding: 12px 18px 16px; border-top: 1px solid #ede5d0; flex-shrink: 0; }
-.tr__detail-close-btn { width: 100%; padding: 9px; border-radius: 10px; font-size: 13.5px; color: #7a6850; background: #f0e8d8; border: 1px solid #c8b89a; cursor: pointer; }
+.tr__detail-btn { font-size: 11px; padding: 3px 10px; border-radius: 6px; background: #fdf1de; color: #8a5a10; border: 1px solid #ecd6ac; cursor: pointer; }
+.tr__detail-btn:hover:not(:disabled) { background: #f8e6c8; }
+.tr__detail-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.tr__detail-footer { padding: 12px 18px 16px; border-top: 1px solid #ede5d0; flex-shrink: 0; display: flex; gap: 8px; }
+.tr__detail-print-btn { flex: 1; padding: 9px; border-radius: 10px; font-size: 13.5px; color: #fff; background: #e8a038; border: none; cursor: pointer; }
+.tr__detail-print-btn:hover:not(:disabled) { background: #d8902c; }
+.tr__detail-print-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.tr__detail-close-btn { flex: 1; padding: 9px; border-radius: 10px; font-size: 13.5px; color: #7a6850; background: #f0e8d8; border: 1px solid #c8b89a; cursor: pointer; }
 .tr__detail-close-btn:hover { background: #e8dcc8; }
 </style>

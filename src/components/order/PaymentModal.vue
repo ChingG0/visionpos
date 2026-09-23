@@ -45,6 +45,16 @@
                 格式錯誤：手機條碼須為「/」開頭共8碼，或自然人憑證為2位大寫字母+14位數字
               </div>
             </template>
+            <!-- 交易明細開關：勾了才印逐項明細（有開發票的話會接在證明聯後面同一張紙）-->
+            <button
+              class="pm-detail-toggle"
+              :class="{ 'pm-detail-toggle--on': printDetail }"
+              :title="printDetail ? '結帳後會列印交易明細' : '結帳後不印交易明細'"
+              @click="togglePrintDetail"
+            >
+              <span class="pm-detail-box">{{ printDetail ? '✓' : '' }}</span>
+              印明細
+            </button>
             <div class="pm-total-label">總計</div>
             <div class="pm-total">${{ total.toFixed(0) }}</div>
           </div>
@@ -205,7 +215,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useStoreSettingsStore } from '@/stores/storeSettingsStore.js'
-import { openCashDrawer } from '@/lib/printer.js'
+import { openCashDrawer, getPrintDetailDefault, setPrintDetailDefault } from '@/lib/printer.js'
 import DiscountEditModal from './DiscountEditModal.vue'
 
 const props = defineProps({
@@ -285,6 +295,14 @@ const method      = ref('cash')
 const enteredStr  = ref('')
 const card4       = ref('')
 const card4Error  = ref(false)
+
+/* 是否列印交易明細。預設沿用這台裝置上次的選擇（店家習慣通常固定），
+ * 店員可以針對這一筆改。稍後付款沒有實際收款，呼叫端不會印。 */
+const printDetail = ref(getPrintDetailDefault())
+function togglePrintDetail() {
+  printDetail.value = !printDetail.value
+  setPrintDetailDefault(printDetail.value)
+}
 const carrierMode = ref('')
 const carrierNum  = ref('')
 const buyerTaxId  = ref('')
@@ -435,6 +453,7 @@ function doEmitPaid() {
     card4:         method.value === 'card' ? card4.value : null,
     carrierNum:    carrierMode.value === 'carrier' ? carrierNum.value : null,
     buyerTaxId:    carrierMode.value === 'taxid'   ? buyerTaxId.value : null,
+    printDetail:   printDetail.value,
   })
 }
 </script>
@@ -454,6 +473,11 @@ function doEmitPaid() {
 .pm-carrier-input:focus { outline: none; border-color: #e8a038; }
 .pm-carrier-input--invalid { border-color: #e06060; }
 .pm-carrier-hint { width: 100%; font-size: 11px; color: #e06060; text-align: right; }
+.pm-detail-toggle { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 8px; font-size: 12px; color: #aaa; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); }
+.pm-detail-toggle:hover { background: rgba(255,255,255,0.12); }
+.pm-detail-toggle--on { color: #fff; border-color: #e8a038; background: rgba(232,160,56,0.18); }
+.pm-detail-box { width: 15px; height: 15px; border-radius: 4px; border: 1.5px solid rgba(255,255,255,0.3); display: flex; align-items: center; justify-content: center; font-size: 11px; line-height: 1; }
+.pm-detail-toggle--on .pm-detail-box { background: #e8a038; border-color: #e8a038; color: #fff; }
 .pm-total-label { font-size: 13px; color: #888; }
 .pm-total { font-size: 26px; font-weight: 700; color: #fff; }
 .pm-tabs { display: flex; padding: 10px 12px 0; gap: 6px; }

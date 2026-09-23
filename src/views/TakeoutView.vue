@@ -212,27 +212,52 @@ const checkoutTarget = ref(null)
 const checkingOut    = ref(false)
 function openCheckout(order) { checkoutTarget.value = order }
 
-async function handleCheckoutPaid({ methodLabel, paymentAmount, changeAmount, card4, carrierNum, buyerTaxId }) {
+async function handleCheckoutPaid({ methodLabel, paymentAmount, changeAmount, card4, carrierNum, buyerTaxId, printDetail }) {
   if (checkingOut.value) return
   const order = checkoutTarget.value
   checkoutTarget.value = null
   if (!order) return
   checkingOut.value = true
   await takeoutStore.markOrderPaid(order.id, { methodLabel, paymentAmount, changeAmount, card4, carrierNum, buyerTaxId })
-  await issueInvoiceIfEnabled({ orderId: order.id, items: order.items, total: order.total, carrierNum, buyerTaxId })
+  await settleReceipts({ order, methodLabel, paymentAmount, changeAmount, carrierNum, buyerTaxId, printDetail })
   checkingOut.value = false
 }
 
-/* 稍後付款訂單真正收到款項時才開票（跟內用 SeatOrderModal 同一套邏輯），
- * 有啟用電子發票才開，fire-and-forget 不阻擋結帳流程。 */
-async function issueInvoiceIfEnabled({ orderId, items, total, carrierNum, buyerTaxId }) {
-  if (!orderId) return
+/* 這張訂單實際的折扣金額，跟 handleSaveDiscount 用同一套公式 */
+function orderDiscountAmount(order) {
+  const d    = order?.discount
+  const base = (order?.subtotal ?? 0) + (order?.surcharge?.amount ?? 0)
+  if (!d?.value) return 0
+  return d.type === 'percent' ? Math.round(base * d.value / 100) : Math.min(d.value, base)
+}
+
+/* 稍後付款訂單真正收到款項時才開票（跟內用 SeatOrderModal 同一套邏輯）。
+ * 交易明細也在這一刻才印——要等收款方式跟找零確定才有東西可印。
+ * fire-and-forget 不阻擋結帳流程。 */
+async function settleReceipts({ order, methodLabel, paymentAmount, changeAmount, carrierNum, buyerTaxId, printDetail }) {
+  if (!order?.id) return
   try {
     const { useInvoice } = await import('@/composables/useInvoice.js')
-    const { isInvoiceEnabled, issueInvoice } = useInvoice()
-    if (!(await isInvoiceEnabled())) return
-    const res = await issueInvoice({ id: orderId, orderType: 'takeout', items, total, buyerTaxId, carrierNum })
-    if (res?.warning) console.warn('[invoice]', res.warning)
+    const { finalizeCheckout } = useInvoice()
+    await finalizeCheckout({
+      id:        order.id,
+      orderType: 'takeout',
+      items:     order.items,
+      total:     order.total,
+      buyerTaxId,
+      carrierNum,
+      printDetail,
+      detail: {
+        items:           order.items,
+        subtotal:        order.subtotal,
+        surchargeAmount: order.surcharge?.amount ?? 0,
+        discountAmount:  orderDiscountAmount(order),
+        total:           order.total,
+        paymentLabel:    methodLabel,
+        paymentAmount,
+        changeAmount,
+      },
+    })
   } catch (e) {
     console.error('[invoice] 外帶稍後付款結帳開票失敗', e)
   }

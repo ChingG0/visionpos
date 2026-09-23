@@ -141,6 +141,18 @@ export function setHomepageUrl(url)   { try { localStorage.setItem(HOMEPAGE_URL_
 export function removeHomepageUrl()   { try { localStorage.removeItem(HOMEPAGE_URL_KEY()) } catch(e) { console.error(e) } }
 
 /* ═══════════════════════════════════════════════
+   結帳時是否列印交易明細
+
+   不是每個客人都要明細，所以做成結帳畫面上的開關；但同一家店的習慣通常固定
+   （例如做生意對帳的店天天都要印），每次都要重勾很煩，這裡記住上次的選擇當
+   下一次的預設值。跟其他出單機設定一樣是裝置層級、依店家分開存。
+═══════════════════════════════════════════════ */
+const PRINT_DETAIL_KEY = () => `${storePrefix()}:printTransactionDetail`
+
+export function getPrintDetailDefault()  { try { return localStorage.getItem(PRINT_DETAIL_KEY()) === '1' } catch { return false } }
+export function setPrintDetailDefault(v) { try { localStorage.setItem(PRINT_DETAIL_KEY(), v ? '1' : '0') } catch(e) { console.error(e) } }
+
+/* ═══════════════════════════════════════════════
    工具函式
 ═══════════════════════════════════════════════ */
 function bigText(text) {
@@ -669,7 +681,7 @@ function invoicePeriodLabel(dateStr) {
  * 回傳、已用本店 AES 金鑰加密好的合規條碼內容，直接印，不在這裡重算。
  * qrCodeReady 為 false 時代表綠界尚未設定密碼種子/POS 版型權限，不印條碼區塊。
  */
-export async function printInvoiceReceipt(inv) {
+export async function printInvoiceReceipt(inv, opts = {}) {
   return new Promise(async (resolve) => {
     const layout = getPrinterLayout()
     const LINE_W = layout.paperWidth === '80' ? 46 : 30
@@ -816,11 +828,217 @@ export async function printInvoiceReceipt(inv) {
       req += builder.createTextElement({ width: 1, height: 1, ...bigText(`應稅銷售額:${Math.round(inv.salesAmount ?? 0)}　稅額:${Math.round(inv.taxAmount ?? 0)}\n`) })
     }
 
+    // ── 交易明細：接在證明聯下面、同一張紙印，中間用虛線隔開，最後才一起裁紙 ──────
+    // 證明聯上只有總額，客人要核對買了哪些東西就得靠這一段。店員在結帳畫面勾選才印。
+    if (opts.transactionDetail) {
+      try {
+        req += buildTransactionDetailBlock(builder, {
+          ...opts.transactionDetail,
+          invoiceNumber: opts.transactionDetail.invoiceNumber ?? inv.invoiceNumber,
+          companyName:   opts.transactionDetail.companyName   ?? inv.companyName,
+          salesAmount:   opts.transactionDetail.salesAmount   ?? inv.salesAmount,
+          taxAmount:     opts.transactionDetail.taxAmount     ?? inv.taxAmount,
+        }, LINE_W)
+      } catch (e) {
+        // 明細組版失敗不能連累證明聯——那是法定憑證，一定要印出來
+        console.warn('[printer] 交易明細組版失敗，只印證明聯', e)
+      }
+    }
+
     req += builder.createCutPaperElement({ feed: true })
 
     const trader = new StarWebPrintTrader({ url: getPrinterUrl(), papertype: 'normal', timeout: 3000 })
     trader.onReceive = (resp) => resolve({ success: true, response: resp })
     trader.onError   = (resp) => resolve({ success: false, error: resp })
     trader.sendMessage({ request: req })
+  })
+}
+/* ═══════════════════════════════════════════════
+   交易明細
+
+   財政部的電子發票證明聯上只有總額，沒有逐項品名／數量／單價，
+   客人要核對買了什麼、店家要對帳都看不出來。交易明細補的就是這一段：
+   同一張紙、接在證明聯下面印，中間用虛線隔開，最後才一起裁紙。
+
+   沒啟用發票的店家，或載具存雲端不印證明聯時，也可以單獨印這一張。
+═══════════════════════════════════════════════ */
+
+/** 稅別代碼：財政部證明聯／明細上的慣用標示（應稅 TX／免稅 FR／零稅率 ZR）*/
+const TAX_CODE = { taxable: 'TX', exempt: 'FR', zero: 'ZR' }
+
+/** 靠左填滿到指定顯示寬度（中文字算 2 格）*/
+function padRight(text, width) {
+  return text + ' '.repeat(Math.max(0, width - displayWidth(text)))
+}
+
+/** 靠右對齊到指定顯示寬度 */
+function padLeft(text, width) {
+  return ' '.repeat(Math.max(0, width - displayWidth(text))) + text
+}
+
+/** 明細表格的四欄欄寬，加起來剛好等於整行可印字元數 */
+function detailColumns(LINE_W) {
+  return LINE_W >= 46
+    ? { name: 20, qty: 7, price: 8, amt: 11 }   // 80mm
+    : { name: 10, qty: 5, price: 6, amt: 9  }   // 58mm
+}
+
+function detailTimeString(value) {
+  const parsed = value ? new Date(value) : new Date()
+  const d = isNaN(parsed.getTime()) ? new Date() : parsed
+  const p = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
+/**
+ * 組出交易明細區塊（不含初始化與裁紙，方便接在證明聯後面或單獨印）
+ *
+ * detail: {
+ *   companyName,        // 店名／抬頭，沒給就用出單機版型裡的店名
+ *   storeAddress, storePhone,   // 沒給就用出單機版型設定；兩者皆空就整行不印
+ *   posId,              // 機號（發票設定頁的 POS ID），沒有就只印交易時間
+ *   invoiceNumber,      // 發票號碼，沒開發票就不印這行
+ *   transactionTime,    // 這筆交易的時間（ISO 或 Date），不給就用列印當下
+ *   items,              // 跟收據同一份 cart lines（含 code/taxType/tags/note/weight）
+ *   subtotal, surchargeAmount, discountAmount, total,
+ *   paymentLabel, paymentAmount, changeAmount,
+ *   salesAmount, taxAmount,     // 有開發票才有；沒有就不印稅額區塊
+ * }
+ */
+function buildTransactionDetailBlock(builder, detail, LINE_W) {
+  const layout = getPrinterLayout()
+  const cols   = detailColumns(LINE_W)
+  const items  = detail.items ?? []
+
+  // 出單機的放大倍率是「持續狀態」不是單次屬性，所以每一行都明確帶 width/height，
+  // 否則會沿用上一行（例如標題的 2 倍）繼續印。
+  const line = (str, opts = {}) =>
+    builder.createTextElement({ width: 1, height: 1, ...opts, ...bigText(str) })
+
+  const dashRule   = '-'.repeat(LINE_W) + '\n'
+  const doubleRule = '='.repeat(LINE_W) + '\n'
+
+  let req = ''
+
+  // ── 跟上面的證明聯拉開距離，用虛線分隔兩個區塊 ──────────────────────────────
+  req += builder.createFeedElement({ unit: 20 })
+  req += line(dashRule)
+  req += line(centerTextScaled('交易明細', LINE_W, 2) + '\n', { width: 2, height: 2, emphasis: true })
+  req += line('\n')
+
+  // ── 店家資訊 ─────────────────────────────────────────────────────────────
+  // 地址／電話沒設定就整行不印。參考機種在沒資料時直接印出 "null"，那是它的 bug，
+  // 不要照抄。
+  const companyName = detail.companyName || layout.storeName || ''
+  const address     = detail.storeAddress ?? layout.storeAddress
+  const phone       = detail.storePhone   ?? layout.storePhone
+
+  if (companyName) {
+    req += line(`店名：${companyName}\n`)
+    req += line(`抬頭：${companyName}\n`)
+  }
+  if (address) req += line(`地址：${address}\n`)
+  if (phone)   req += line(`電話：${phone}\n`)
+
+  // 機號 + 完整時間在 58mm（30 字元）上剛好會超過一行，硬印會被印表機折成很醜的
+  // 兩段；放不下就自己拆成「機號」「時間」兩行，秒數不砍掉——證明聯上的時間要對得起來。
+  const timeStr = detailTimeString(detail.transactionTime)
+  if (detail.posId) {
+    const posLine = `機號 ${detail.posId} ${timeStr}`
+    if (displayWidth(posLine) <= LINE_W) {
+      req += line(posLine + '\n')
+    } else {
+      req += line(`機號 ${detail.posId}\n`)
+      req += line(timeStr + '\n')
+    }
+  } else {
+    req += line(`交易時間：${timeStr}\n`)
+  }
+  if (detail.invoiceNumber) req += line(`發票號碼：${detail.invoiceNumber}\n`)
+
+  // ── 品項表格 ─────────────────────────────────────────────────────────────
+  req += line(doubleRule)
+  req += line(
+    padRight('品名', cols.name) + padLeft('數量', cols.qty) +
+    padLeft('單價', cols.price) + padLeft('金額', cols.amt) + '\n'
+  )
+  req += line(dashRule)
+
+  for (const item of sortByCode(items)) {
+    const qty    = item.qty ?? 0
+    const price  = Math.round(item.price ?? 0)
+    const amount = Math.round(price * qty)
+    const amtStr = `${amount}${TAX_CODE[item.taxType] ?? ''}`
+    const name   = item.name ?? ''
+
+    // 品名太長就自己占一行，數字欄下一行再對齊印，這樣欄位不會被擠歪、也不會截斷品名
+    if (displayWidth(name) > cols.name) {
+      req += line(name + '\n')
+      req += line(padRight('', cols.name) + padLeft(String(qty), cols.qty) + padLeft(String(price), cols.price) + padLeft(amtStr, cols.amt) + '\n')
+    } else {
+      req += line(padRight(name, cols.name) + padLeft(String(qty), cols.qty) + padLeft(String(price), cols.price) + padLeft(amtStr, cols.amt) + '\n')
+    }
+
+    // 單品標籤／手輸備註／時價秤重，縮排印在品名下一行（跟結帳收據同一套）
+    const extra = itemExtraLine(item)
+    if (extra) req += line(`  ${extra}\n`)
+  }
+
+  // ── 小計／加價／折扣 ──────────────────────────────────────────────────────
+  req += line(dashRule)
+  const subtotal = Math.round(detail.subtotal ?? 0)
+  req += line(
+    padRight('共', 4) + padLeft(`${items.length}項`, cols.name - 4 + cols.qty) +
+    padLeft('小計', cols.price) + padLeft(String(subtotal), cols.amt) + '\n'
+  )
+
+  const surcharge = Math.round(detail.surchargeAmount ?? 0)
+  const discount  = Math.round(detail.discountAmount ?? 0)
+  if (surcharge > 0) req += line(padLeft('加價：', LINE_W - cols.amt) + padLeft(`+${surcharge}`, cols.amt) + '\n')
+  if (discount  > 0) req += line(padLeft('折扣：', LINE_W - cols.amt) + padLeft(`-${discount}`,  cols.amt) + '\n')
+
+  // ── 收款／找零 ───────────────────────────────────────────────────────────
+  if (detail.paymentLabel) {
+    req += line(dashRule)
+    req += line(padLeft(`${detail.paymentLabel}：`, LINE_W - cols.amt) + padLeft(String(Math.round(detail.paymentAmount ?? 0)), cols.amt) + '\n')
+    req += line(padLeft('找零：', LINE_W - cols.amt) + padLeft(String(Math.round(detail.changeAmount ?? 0)), cols.amt) + '\n')
+  }
+
+  // ── 合計 ────────────────────────────────────────────────────────────────
+  req += line(doubleRule)
+  req += line(padLeft('合計：', LINE_W - cols.amt) + padLeft(String(Math.round(detail.total ?? 0)), cols.amt) + '\n', { emphasis: true })
+
+  // ── 稅額（有開發票才印；沒發票就沒有應稅銷售額/稅額可言）──────────────────────
+  if (detail.salesAmount != null || detail.taxAmount != null) {
+    req += line('\n')
+    req += line(padLeft('應稅銷售額', LINE_W - cols.amt) + padLeft(String(Math.round(detail.salesAmount ?? 0)), cols.amt) + '\n')
+    req += line(padLeft('稅　　額',   LINE_W - cols.amt) + padLeft(String(Math.round(detail.taxAmount   ?? 0)), cols.amt) + '\n')
+    req += line(padLeft('總　　計',   LINE_W - cols.amt) + padLeft(String(Math.round(detail.total       ?? 0)), cols.amt) + '\n')
+  }
+
+  req += line(dashRule)
+
+  return req
+}
+
+/** 單獨列印一張交易明細（沒開發票、或載具存雲端不印證明聯時走這裡）*/
+export function printTransactionDetail(detail) {
+  return new Promise((resolve) => {
+    try {
+      const layout  = getPrinterLayout()
+      const LINE_W  = layout.paperWidth === '80' ? 46 : 30
+      const builder = new StarWebPrintBuilder()
+
+      let req = ''
+      req += builder.createInitializationElement()
+      req += builder.createTextElement({ codepage: 'big5' })
+      req += buildTransactionDetailBlock(builder, detail, LINE_W)
+      req += builder.createCutPaperElement({ feed: true })
+
+      sendPrintRequest(req).then(resolve)
+    } catch (e) {
+      console.warn('[printer] 交易明細組版失敗', e)
+      resolve({ success: false, error: e })
+    }
   })
 }

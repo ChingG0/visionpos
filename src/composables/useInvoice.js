@@ -3,7 +3,7 @@
 // visionpos/src/composables/useInvoice.js
 // =============================================================================
 import { supabase } from '@/lib/supabase.js'
-import { printInvoiceReceipt } from '@/lib/printer.js'
+import { printInvoiceReceipt, printTransactionDetail } from '@/lib/printer.js'
 
 const EDGE_URL = import.meta.env.DEV
   ? '/functions/v1/ecpay-invoice'
@@ -29,38 +29,69 @@ async function callEdge(body) {
   return res.json()
 }
 
-/* 「有沒有啟用發票」這個設定幾乎不會變，但原本每次結帳都查一次資料庫，
- * 等於每筆訂單都多一趟往返。改成快取 5 分鐘，店家在後台改設定後最慢 5 分鐘生效，
- * 要立即生效可以呼叫 clearInvoiceEnabledCache()（發票設定頁儲存時會呼叫）。 */
-const ENABLED_TTL = 5 * 60 * 1000
-let enabledCache = { storeId: null, value: null, at: 0 }
+/* 發票設定幾乎不會變，但原本每次結帳都查一次資料庫，等於每筆訂單都多一趟往返。
+ * 改成快取 5 分鐘，店家在後台改設定後最慢 5 分鐘生效，要立即生效可以呼叫
+ * clearInvoiceEnabledCache()（發票設定頁儲存時會呼叫）。
+ *
+ * 除了 enabled，交易明細的抬頭跟機號也是從這張表來的，一起帶回來快取，
+ * 才不會為了印一行店名又多查一次。 */
+const SETTINGS_TTL = 5 * 60 * 1000
+let settingsCache = { storeId: null, value: null, at: 0 }
 
 export function clearInvoiceEnabledCache() {
-  enabledCache = { storeId: null, value: null, at: 0 }
+  settingsCache = { storeId: null, value: null, at: 0 }
+}
+
+async function loadSettings() {
+  const storeId = getStoreId()
+  if (!storeId) return null
+
+  const fresh = settingsCache.storeId === storeId
+    && settingsCache.value !== null
+    && (Date.now() - settingsCache.at) < SETTINGS_TTL
+  if (fresh) return settingsCache.value
+
+  const { data } = await supabase
+    .from('invoice_settings')
+    .select('enabled, company_name, pos_id')
+    .eq('store_id', storeId)
+    .maybeSingle()
+
+  const value = {
+    enabled:     data?.enabled === true,
+    companyName: data?.company_name ?? '',
+    posId:       data?.pos_id ?? '',
+  }
+  settingsCache = { storeId, value, at: Date.now() }
+  return value
+}
+
+/** 把呼叫端給的訂單資料，補上店名/機號/發票欄位，組成 printer 要的交易明細 payload */
+function toDetailPayload(detail, settings, invoice) {
+  return {
+    ...detail,
+    companyName:   detail?.companyName || settings?.companyName || '',
+    posId:         detail?.posId       || settings?.posId       || '',
+    invoiceNumber: invoice?.invoiceNumber ?? null,
+    salesAmount:   invoice?.salesAmount   ?? null,
+    taxAmount:     invoice?.taxAmount     ?? null,
+  }
 }
 
 export function useInvoice() {
 
   /** 檢查此店是否啟用發票 */
   async function isInvoiceEnabled() {
-    const storeId = getStoreId()
-    if (!storeId) return false
-
-    const fresh = enabledCache.storeId === storeId
-      && enabledCache.value !== null
-      && (Date.now() - enabledCache.at) < ENABLED_TTL
-    if (fresh) return enabledCache.value
-
-    const { data } = await supabase
-      .from('invoice_settings').select('enabled').eq('store_id', storeId).maybeSingle()
-    const value = data?.enabled === true
-    enabledCache = { storeId, value, at: Date.now() }
-    return value
+    return (await loadSettings())?.enabled === true
   }
 
   /**
    * 開立發票並列印證明聯
-   * order: { id, orderType, items, total, buyerTaxId, carrierNum }
+   * order: { id, orderType, items, total, buyerTaxId, carrierNum,
+   *          printDetail?, detail? }
+   *
+   * printDetail 為 true 時，交易明細會接在證明聯後面同一張紙印出來；
+   * 如果這張發票存雲端不印證明聯（有載具、無統編），明細就單獨印一張。
    * 回傳 { ok, invoice } 或 { ok: false, error }
    */
   async function issueInvoice(order) {
@@ -85,12 +116,21 @@ export function useInvoice() {
       }
 
       // 有載具且無統編 → 存雲端不列印；否則列印證明聯
-      const needPrint = !order.carrierNum || order.buyerTaxId
+      const needPrint  = !order.carrierNum || order.buyerTaxId
+      const wantDetail = order.printDetail === true
+      const detail     = wantDetail
+        ? toDetailPayload(order.detail ?? {}, await loadSettings(), result.invoice)
+        : null
+
       if (needPrint) {
+        // 明細跟著證明聯走，同一張紙一次印完，中間只隔一條虛線
         await printInvoiceReceipt({
           ...result.invoice,
           items: order.items,
-        })
+        }, detail ? { transactionDetail: detail } : {})
+      } else if (detail) {
+        // 證明聯存雲端不印，但店員仍要明細 → 單獨印一張（上面仍有發票號碼可對帳）
+        await printTransactionDetail(detail)
       }
 
       // result.invoice.qrCodeReady === false 代表綠界尚未設定密碼種子/POS 版型權限，
@@ -123,5 +163,37 @@ export function useInvoice() {
       : { ok: false, error: result.error ?? '查詢失敗' }
   }
 
-  return { isInvoiceEnabled, issueInvoice, voidInvoice, syncRemainCount }
+  /**
+   * 結帳完成後的憑證輸出，四個結帳入口（新單、內用單張/併單、外帶稍後付款）共用。
+   *
+   *   有啟用發票 → 開票，交易明細接在證明聯後面
+   *   沒啟用發票 → 沒有票可開，勾了印明細就單獨印一張（沒有發票號碼跟稅額欄）
+   *
+   * 整段都是 fire-and-forget 的性質：印不出來不該讓訂單卡住，所以錯誤只記 console。
+   */
+  async function finalizeCheckout({ id, orderType, items, total, buyerTaxId, carrierNum, printDetail, detail }) {
+    if (!id) return { ok: false, error: '缺少訂單編號' }
+
+    try {
+      const settings = await loadSettings()
+
+      if (!settings?.enabled) {
+        if (printDetail === true) {
+          await printTransactionDetail(toDetailPayload(detail ?? {}, settings, null))
+        }
+        return { ok: true, invoiceSkipped: true }
+      }
+
+      const res = await issueInvoice({
+        id, orderType, items, total, buyerTaxId, carrierNum, printDetail, detail,
+      })
+      if (res?.warning) console.warn('[invoice]', res.warning)
+      return res
+    } catch (e) {
+      console.error('[invoice] 結帳憑證處理失敗', e)
+      return { ok: false, error: '結帳憑證處理失敗' }
+    }
+  }
+
+  return { isInvoiceEnabled, issueInvoice, finalizeCheckout, voidInvoice, syncRemainCount }
 }

@@ -328,16 +328,21 @@ async function handleSaveDiscount(newDiscount) {
 /* ── 稍後付款 → 開 PaymentModal → 結帳 ── */
 const showPaymentModal = ref(false)
 
-async function handlePaymentAndComplete({ methodLabel, paymentAmount, changeAmount, carrierNum, buyerTaxId }) {
+async function handlePaymentAndComplete({ methodLabel, paymentAmount, changeAmount, carrierNum, buyerTaxId, printDetail }) {
   // 重號檢核（項次 1）：防連點，處理中直接擋掉第二次觸發
   if (completing.value) return
   showPaymentModal.value = false
   if (!currentOrder.value) return
   completing.value = true
 
-  const orderId = currentOrder.value.id
-  const items   = currentOrder.value.items
-  const total   = currentOrder.value.total
+  // 先抓成區域變數：下面幾步會刷新 orders / currentOrder，之後再讀就不是這張單了
+  const order    = currentOrder.value
+  const orderId  = order.id
+  const items    = order.items
+  const total    = order.total
+  const subtotal = order.subtotal
+  const surcharge = order.surcharge?.amount ?? 0
+  const discount  = orderDiscountAmount(order)
 
   // ① 只寫入付款資訊，不結束訂單
   await supabase.from('dine_in_orders').update({
@@ -356,32 +361,43 @@ async function handlePaymentAndComplete({ methodLabel, paymentAmount, changeAmou
   // ⑤ 通知 DineInView 刷新 FloorMap
   emit('payment-done', props.seat.id)
 
-  // ⑥ 電子發票（稍後付款訂單在這個「真正付款」的時間點才開票，有啟用才開）
-  await issueInvoiceIfEnabled({ orderId, items, total, carrierNum, buyerTaxId })
+  // ⑥ 電子發票 + 交易明細（稍後付款訂單在這個「真正付款」的時間點才開票／印明細）
+  await settleReceipts({
+    orderId, items, total, carrierNum, buyerTaxId, printDetail,
+    detail: {
+      items, subtotal, total,
+      surchargeAmount: surcharge,
+      discountAmount:  discount,
+      paymentLabel:    methodLabel,
+      paymentAmount,
+      changeAmount,
+    },
+  })
 
   completing.value = false
 }
 
-/* ── 稍後付款訂單真正結帳時開立電子發票（單張 / 併單共用）──────────────────────
+/* ── 稍後付款訂單真正結帳時的憑證輸出（單張 / 併單共用）────────────────────────
    NewOrderView 的即時付款流程在訂單建立當下就開票；「稍後付款」訂單當初建立時
    刻意不開票（金額/品項可能還會變），所以要在這裡、真正收到錢的這一刻才開票，
-   並讓店員在這個 PaymentModal 上重新輸入統編/載具（跟 NewOrderView 用同一套
-   useInvoice.issueInvoice，同樣是 fire-and-forget，不阻擋結帳流程）。 */
-async function issueInvoiceIfEnabled({ orderId, items, total, carrierNum, buyerTaxId }) {
+   並讓店員在這個 PaymentModal 上重新輸入統編/載具。交易明細同理——要等收款方式
+   跟找零確定才有東西可印（跟 NewOrderView 用同一套 useInvoice.finalizeCheckout，
+   同樣是 fire-and-forget，不阻擋結帳流程）。 */
+async function settleReceipts({ orderId, items, total, carrierNum, buyerTaxId, printDetail, detail }) {
   if (!orderId) return
   try {
     const { useInvoice } = await import('@/composables/useInvoice.js')
-    const { isInvoiceEnabled, issueInvoice } = useInvoice()
-    if (!(await isInvoiceEnabled())) return
-    const res = await issueInvoice({
+    const { finalizeCheckout } = useInvoice()
+    await finalizeCheckout({
       id:        orderId,
       orderType: 'dine_in',
       items,
       total,
       buyerTaxId,
       carrierNum,
+      printDetail,
+      detail,
     })
-    if (res?.warning) console.warn('[invoice]', res.warning)
   } catch (e) {
     console.error('[invoice] 稍後付款結帳開票失敗', e)
   }
@@ -414,7 +430,7 @@ function toggleMerge(orderId) {
   mergeSet.value = s
 }
 
-async function handleMergePaymentAndComplete({ methodLabel, paymentAmount, changeAmount, carrierNum, buyerTaxId }) {
+async function handleMergePaymentAndComplete({ methodLabel, paymentAmount, changeAmount, carrierNum, buyerTaxId, printDetail }) {
   // 重號檢核（項次 1）：防連點，處理中直接擋掉第二次觸發
   if (completing.value) return
   showMergePayment.value = false
@@ -483,8 +499,21 @@ async function handleMergePaymentAndComplete({ methodLabel, paymentAmount, chang
   await markTablePaid(props.seat.id)
   emit('payment-done', props.seat.id)
 
-  // ⑥ 電子發票：併單只開一張，金額/品項用合併後的資料
-  await issueInvoiceIfEnabled({ orderId: mergedOrderId, items: mergedItems, total: mergedTotal, carrierNum, buyerTaxId })
+  // ⑥ 電子發票：併單只開一張，金額/品項用合併後的資料；交易明細同樣印合併後的
+  await settleReceipts({
+    orderId: mergedOrderId, items: mergedItems, total: mergedTotal,
+    carrierNum, buyerTaxId, printDetail,
+    detail: {
+      items:           mergedItems,
+      subtotal:        mergedSubtotal,
+      surchargeAmount: mergedSurcharge,
+      discountAmount:  mergedDiscount,
+      total:           mergedTotal,
+      paymentLabel:    methodLabel,
+      paymentAmount,
+      changeAmount,
+    },
+  })
 
   completing.value = false
 }
