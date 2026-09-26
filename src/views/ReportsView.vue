@@ -14,6 +14,8 @@
         <CustomerAnalysis   v-if="currentPage === 'customers'"    />
         <ShiftRecords       v-if="currentPage === 'shifts'"       />
         <OrderChangeLogs    v-if="currentPage === 'orderlogs'"    />
+        <UberRevenue        v-if="currentPage === 'uber'"         />
+        <UberProducts       v-if="currentPage === 'uberproducts'" />
       </div>
     </div>
   </div>
@@ -32,6 +34,8 @@ import ProductAnalysis    from '@/views/reports/ProductAnalysis.vue'
 import TagAnalysis        from '@/views/reports/TagAnalysis.vue'
 import DiscountAnalysis   from '@/views/reports/DiscountAnalysis.vue'
 import CustomerAnalysis   from '@/views/reports/CustomerAnalysis.vue'
+import UberRevenue        from '@/views/reports/UberRevenue.vue'
+import UberProducts       from '@/views/reports/UberProducts.vue'
 
 const route = useRoute()
 const currentPage = computed(() => route.query.page || 'revenue')

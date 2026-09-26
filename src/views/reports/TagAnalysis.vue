@@ -79,7 +79,7 @@
     <!-- 標籤細節表格 -->
     <div class="ta__table-card">
       <div class="ta__card-title">標籤明細</div>
-      <p class="ta__note">※ 統計外帶、內用訂單的快速標籤；外送訂單標籤資料由 Uber Eats 提供，尚未整合</p>
+      <p class="ta__note">※ 統計外帶、內用訂單的快速標籤</p>
       <table class="ta__table">
         <thead>
           <tr>
@@ -155,7 +155,7 @@ function applyCustom() { preset.value = ''; reportsStore.fetchOrders(customStart
 onMounted(() => applyPreset('today'))
 
 /* ── 資料計算 ── */
-// 標籤功能目前只有外帶、內用會用到（外送標籤資料由 Uber Eats 提供，尚未整合進來）
+// 標籤功能只有外帶、內用會用到
 // 排除「稍後付款」的未收款訂單，標籤金額統計只算真的收到錢的
 const eligibleOrders = computed(() => reportsStore.paidOrders.filter(o => o.orderType === 'takeout' || o.orderType === 'dine-in'))
 const taggedOrders   = computed(() => eligibleOrders.value.filter(o => o.tags?.length > 0))

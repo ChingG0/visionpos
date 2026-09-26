@@ -220,7 +220,6 @@ const typeDiscountRows = computed(() => {
   const types = [
     { typeKey: 'takeout',  type: '外帶',  orders: orders.value.filter(o => o.orderType === 'takeout')  },
     { typeKey: 'dine-in',  type: '內用',  orders: orders.value.filter(o => o.orderType === 'dine-in')  },
-    { typeKey: 'delivery', type: '外送',  orders: orders.value.filter(o => o.orderType === 'delivery') },
   ]
   return types.map(t => {
     const withDiscount = t.orders.filter(o => discountOf(o) > 0)
@@ -326,7 +325,6 @@ function fmtShort(n) {
 .da__type-badge { font-size: 11.5px; font-weight: 500; padding: 2px 9px; border-radius: 999px; text-align: center; }
 .da__type-badge--takeout  { background: #fde8c0; color: #8a6020; }
 .da__type-badge--dine-in  { background: #d8eed0; color: #2a6030; }
-.da__type-badge--delivery { background: #d0f0e0; color: #1a6035; }
 .da__amount   { color: #e85858; font-weight: 600; }
 .da__surcharge { color: #5a7a3a; font-weight: 600; }
 

@@ -71,6 +71,11 @@
           <span v-else>登入</span>
         </button>
 
+        <!-- 還沒有店家代碼的人從這裡進申請流程 -->
+        <RouterLink :to="{ name: 'Apply' }" class="login__apply">
+          還沒有帳號？<b>申請試用</b>
+        </RouterLink>
+
       </form>
     </div>
   </div>
@@ -78,7 +83,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore.js'
 
 const router    = useRouter()
@@ -174,6 +179,14 @@ async function handleLogin() {
   font-size: 15px; cursor: pointer; padding: 0 2px; opacity: .6;
 }
 .login__divider { height: 1px; background: #f0ece5; margin: 0 14px; }
+
+.login__apply {
+  text-align: center; font-size: 13px; text-decoration: none;
+  color: rgba(255,255,255,0.82); text-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  padding: 4px 0;
+}
+.login__apply b { color: #fff; font-weight: 600; }
+.login__apply:hover b { text-decoration: underline; }
 
 .login__error {
   font-size: 13px; color: #fff;

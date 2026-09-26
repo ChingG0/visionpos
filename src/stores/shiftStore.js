@@ -51,13 +51,12 @@ export const useShiftStore = defineStore('shifts', () => {
         return out
       }
 
-      const [t, d, di] = await Promise.all([
+      const [t, di] = await Promise.all([
         applyRange(supabase.from('takeout_orders').select('total, payment_method, completed_at')),
-        applyRange(supabase.from('delivery_orders').select('total, payment_method, completed_at')),
         applyRange(supabase.from('dine_in_orders').select('total, payment_method, completed_at')),
       ])
 
-      const allOrders = [...(t.data ?? []), ...(d.data ?? []), ...(di.data ?? [])]
+      const allOrders = [...(t.data ?? []), ...(di.data ?? [])]
 
       // 「稍後付款」是已出餐但錢還沒收到（應收未收），不能算進營收。
       // 獨立列出來讓店員知道有多少款項要追，實際收款後 payment_method

@@ -33,16 +33,9 @@ export const useReportsStore = defineStore('reports', () => {
     const e = toTWRangeISO(endDate,   true)
 
     try {
-      const [t, d, di] = await Promise.all([
+      const [t, di] = await Promise.all([
         supabase.from('takeout_orders')
           .select('id, pickup_number, customer_name, items, tags, note, surcharge, discount, subtotal, total, completed_at, payment_method, payment_amount, change_amount, card4, carrier_num, buyer_tax_id')
-          .eq('store_id', storeId)
-          .eq('status', 'done')
-          .gte('completed_at', s).lte('completed_at', e)
-          .order('completed_at'),
-
-        supabase.from('delivery_orders')
-          .select('id, pickup_number, customer_name, delivery_address, items, note, subtotal, total, completed_at, payment_method')
           .eq('store_id', storeId)
           .eq('status', 'done')
           .gte('completed_at', s).lte('completed_at', e)
@@ -57,13 +50,12 @@ export const useReportsStore = defineStore('reports', () => {
       ])
 
       const takeout  = (t.data  ?? []).map(r => ({ ...r, orderType: 'takeout',  typeLabel: '外帶' }))
-      const delivery = (d.data  ?? []).map(r => ({ ...r, orderType: 'delivery', typeLabel: '外送' }))
       const dineIn   = (di.data ?? []).map(r => ({
         ...r, orderType: 'dine-in', typeLabel: '內用',
         customer_name: r.seat_name,
       }))
 
-      orders.value = [...takeout, ...delivery, ...dineIn]
+      orders.value = [...takeout, ...dineIn]
         .sort((a, b) => new Date(a.completed_at) - new Date(b.completed_at))
     } catch (err) {
       error.value = err.message

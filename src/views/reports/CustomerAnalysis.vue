@@ -272,7 +272,6 @@ const typeRows = computed(() => {
   const types = [
     { typeKey: 'takeout',  label: '外帶' },
     { typeKey: 'dine-in',  label: '內用' },
-    { typeKey: 'delivery', label: '外送' },
   ]
   return types.map(t => {
     const list = orders.value.filter(o => o.orderType === t.typeKey)
@@ -360,12 +359,10 @@ function fmtNum(n) { return Math.round(n ?? 0).toLocaleString('zh-TW') }
 .ca__type-badge { font-size: 12px; font-weight: 500; padding: 3px 12px; border-radius: 999px; white-space: nowrap; }
 .ca__type-badge--takeout  { background: #fde8c0; color: #8a6020; }
 .ca__type-badge--dine-in  { background: #d8eed0; color: #2a6030; }
-.ca__type-badge--delivery { background: #d0f0e0; color: #1a6035; }
 .ca__type-track { flex: 1; height: 12px; background: #f5f0e8; border-radius: 999px; overflow: hidden; }
 .ca__type-fill { height: 100%; border-radius: 999px; transition: width 0.4s; }
 .ca__type-fill--takeout  { background: #e8a038; }
 .ca__type-fill--dine-in  { background: #5a9a40; }
-.ca__type-fill--delivery { background: #06c167; }
 .ca__type-count { width: 80px; text-align: right; font-size: 12.5px; color: var(--color-text-secondary); }
 .ca__type-rev   { width: 70px; text-align: right; font-size: 12.5px; color: var(--color-text-muted); }
 .ca__type-avg   { width: 60px; text-align: right; font-size: 11.5px; color: var(--color-text-muted); }

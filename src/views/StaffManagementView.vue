@@ -197,7 +197,7 @@ const ROLE_LABELS = { owner: '老闆', manager: '主管', cashier: '收銀員' }
 
 const ROLE_PERMS = {
   owner: [
-    { label: '點餐 / 外帶 / 外送', ok: true },
+    { label: '點餐 / 外帶', ok: true },
     { label: '訂位管理',           ok: true },
     { label: '會員管理',           ok: true },
     { label: '庫存管理',           ok: true },
@@ -206,7 +206,7 @@ const ROLE_PERMS = {
     { label: '員工管理',           ok: true },
   ],
   manager: [
-    { label: '點餐 / 外帶 / 外送', ok: true },
+    { label: '點餐 / 外帶', ok: true },
     { label: '訂位管理',           ok: true },
     { label: '會員管理',           ok: true },
     { label: '庫存管理',           ok: true },
@@ -215,7 +215,7 @@ const ROLE_PERMS = {
     { label: '員工管理',           ok: false },
   ],
   cashier: [
-    { label: '點餐 / 外帶 / 外送', ok: true },
+    { label: '點餐 / 外帶', ok: true },
     { label: '訂位管理',           ok: true },
     { label: '會員管理',           ok: false },
     { label: '庫存管理',           ok: false },

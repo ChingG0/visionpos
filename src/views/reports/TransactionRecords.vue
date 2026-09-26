@@ -73,7 +73,6 @@
                   :class="{
                     'tr__type-badge--takeout':  order.orderType === 'takeout',
                     'tr__type-badge--dinein':   order.orderType === 'dine-in',
-                    'tr__type-badge--delivery': order.orderType === 'delivery',
                   }">
                   {{ order.typeLabel }}
                 </span>
@@ -155,7 +154,7 @@
       </table>
     </div>
 
-    <p class="tr__note">※ 記錄外帶、內用、外送已完成訂單</p>
+    <p class="tr__note">※ 記錄外帶、內用已完成訂單</p>
 
     <!-- 作廢確認 Modal -->
     <Teleport to="body">
@@ -271,7 +270,6 @@
                 :class="{
                   'tr__type-badge--takeout':  detailOrder.orderType === 'takeout',
                   'tr__type-badge--dinein':   detailOrder.orderType === 'dine-in',
-                  'tr__type-badge--delivery': detailOrder.orderType === 'delivery',
                 }">
                 {{ detailOrder.typeLabel }}
               </span>
@@ -284,7 +282,6 @@
             <div class="tr__detail-meta">
               <span>{{ fmtTime(detailOrder.completed_at) }}</span>
               <span v-if="detailOrder.customer_name">・{{ detailOrder.customer_name }}</span>
-              <span v-if="detailOrder.delivery_address">・{{ detailOrder.delivery_address }}</span>
             </div>
 
             <table class="tr__detail-table">
@@ -386,7 +383,6 @@ const TYPE_OPTS = [
   { key: 'all',      label: '全部' },
   { key: 'takeout',  label: '外帶' },
   { key: 'dine-in',  label: '內用' },
-  { key: 'delivery', label: '外送' },
 ]
 
 function todayStr() {
@@ -611,7 +607,7 @@ async function doVoid() {
 // ── 作廢訂單（沒有開發票的訂單）─────────────────────────────────────────────────
 // 依訂單類型對應到正確的資料表；作廢後直接改成 status='cancelled'，
 // reportsStore 只抓 status='done'，所以下次撈資料它就不會再出現。
-const TABLE_BY_TYPE = { takeout: 'takeout_orders', delivery: 'delivery_orders', 'dine-in': 'dine_in_orders' }
+const TABLE_BY_TYPE = { takeout: 'takeout_orders', 'dine-in': 'dine_in_orders' }
 
 const cancellingOrder        = ref(null)
 const cancelOrderReason      = ref('')
@@ -772,7 +768,6 @@ async function doDeleteOrder() {
 .tr__type-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 500; }
 .tr__type-badge--takeout  { background: #fde8c0; color: #8a6020; }
 .tr__type-badge--dinein   { background: #e8f3e8; color: #3a6a3a; }
-.tr__type-badge--delivery { background: #d0f0e0; color: #1a6035; }
 .tr__pay-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #eef4ff; color: #1a5080; font-weight: 500; }
 .tr__pay-badge--unpaid { background: #fff2dc; color: #a05f10; }
 .tr__unpaid-summary { font-size: 12.5px; color: #c07818; }

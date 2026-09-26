@@ -127,20 +127,12 @@ export const useMemberStore = defineStore('members', () => {
       if (dateTo)   q = q.lte('completed_at', `${dateTo}T23:59:59`)
       return q
     }
-    const [t, d] = await Promise.all([
-      applyDate(supabase.from('takeout_orders')
-        .select('id, items, tags, total, completed_at, status')
-        .eq('store_id', storeId).eq('customer_phone', clean).eq('status', 'done')
-        .order('completed_at', { ascending: false }).limit(50)),
-      applyDate(supabase.from('delivery_orders')
-        .select('id, items, tags, total, completed_at, status')
-        .eq('store_id', storeId).eq('customer_phone', clean).eq('status', 'done')
-        .order('completed_at', { ascending: false }).limit(50)),
-    ])
-    const takeouts   = (t.data ?? []).map(o => ({ ...o, orderType: 'takeout' }))
-    const deliveries = (d.data ?? []).map(o => ({ ...o, orderType: 'delivery' }))
-    return [...takeouts, ...deliveries]
-      .sort((a, b) => new Date(b.completed_at) - new Date(a.completed_at))
+    const { data } = await applyDate(supabase.from('takeout_orders')
+      .select('id, items, tags, total, completed_at, status')
+      .eq('store_id', storeId).eq('customer_phone', clean).eq('status', 'done')
+      .order('completed_at', { ascending: false }).limit(50))
+    // 外送已從前台移除；Uber 訂單沒有顧客電話，無法歸戶到會員
+    return (data ?? []).map(o => ({ ...o, orderType: 'takeout' }))
   }
 
   async function recordArrival(phone, { reservationDate, reservationTime, seatedAt }) {

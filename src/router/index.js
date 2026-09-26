@@ -4,7 +4,6 @@ import LoginView             from '@/views/LoginView.vue'
 import NewOrderView          from '@/views/NewOrderView.vue'
 import DineInView            from '@/views/DineInView.vue'
 import TakeoutView           from '@/views/TakeoutView.vue'
-import DeliveryView          from '@/views/DeliveryView.vue'
 import ReservationView       from '@/views/ReservationView.vue'
 import KitchenStationView    from '@/views/KitchenStationView.vue'
 import MiscTransactionsView  from '@/views/MiscTransactionsView.vue'
@@ -18,6 +17,8 @@ import DeviceManagementView  from '@/views/DeviceManagementView.vue'
 import StaffManagementView   from '@/views/StaffManagementView.vue'
 import InvoiceSettingsView   from '@/views/InvoiceSettingsView.vue'
 import PaymentSettingsView       from '@/views/PaymentSettingsView.vue'
+import PlanUsageView             from '@/views/PlanUsageView.vue'
+import ApplyView                from '@/views/ApplyView.vue'
 
 // cashier 不能進入的頁面
 const MANAGER_ONLY_ROUTES = [
@@ -31,6 +32,8 @@ const MANAGER_ONLY_ROUTES = [
 
 const routes = [
   { path: '/login', name: 'Login', component: LoginView, meta: { public: true } },
+  // 公開申請頁：免登入，資料走 store-application edge function 進來
+  { path: '/apply', name: 'Apply', component: ApplyView, meta: { public: true } },
   { path: '/', redirect: '/login' },
 
   {
@@ -40,7 +43,6 @@ const routes = [
       { path: 'new-order',   name: 'NewOrder',    component: NewOrderView },
       { path: 'dine-in',     name: 'DineIn',      component: DineInView },
       { path: 'takeout',     name: 'Takeout',     component: TakeoutView },
-      { path: 'delivery',    name: 'Delivery',    component: DeliveryView },
       { path: 'reservation', name: 'Reservation', component: ReservationView },
       { path: 'kitchen-station', name: 'KitchenStation', component: KitchenStationView },
       { path: 'misc',            name: 'MiscTransactions', component: MiscTransactionsView },
@@ -54,6 +56,7 @@ const routes = [
       { path: 'settings/invoice',   name: 'InvoiceSettings',   component: InvoiceSettingsView },
       { path: 'settings/payment',   name: 'PaymentSettings',   component: PaymentSettingsView },
       { path: 'settings/store',     name: 'StoreInfo',         component: StoreInfoView },
+      { path: 'settings/plan',      name: 'PlanUsage',         component: PlanUsageView },
     ],
   },
 

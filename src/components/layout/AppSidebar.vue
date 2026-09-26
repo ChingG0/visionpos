@@ -103,18 +103,6 @@ const IconTakeout = defineComponent({
   ])
 })
 
-/* 外送：機車圖示 */
-const IconDelivery = defineComponent({
-  render: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
-    h('circle', { cx: '5.5', cy: '17.5', r: '2' }),
-    h('circle', { cx: '18.5', cy: '17.5', r: '2' }),
-    h('path', { d: 'M8 17.5h7.5' }),
-    h('path', { d: 'M15.5 17.5V12l-3-6H9L6 12.5' }),
-    h('path', { d: 'M15.5 7h3.5l2 5' }),
-    h('path', { d: 'M13 17.5V14h6.5' }),
-  ])
-})
-
 /* 預約：日曆圖示 */
 const IconReservation = defineComponent({
   render: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
@@ -150,7 +138,6 @@ const navItems = [
   { id: 'NewOrder',       label: '新訂單',  icon: IconNewOrder },
   { id: 'DineIn',         label: '內用',    icon: IconDineIn },
   { id: 'Takeout',        label: '外帶',    icon: IconTakeout },
-  { id: 'Delivery',       label: '外送',    icon: IconDelivery },
   { id: 'Reservation',    label: '預約',    icon: IconReservation },
   { id: 'KitchenStation', label: '工作站',  icon: IconKitchenStation },
   { id: 'MiscTransactions', label: '雜項收支', icon: IconMisc },

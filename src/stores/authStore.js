@@ -7,10 +7,10 @@ import { useReservationStore } from '@/stores/reservationStore.js'
 import { useMemberStore }      from '@/stores/memberStore.js'
 import { useDineInStore }      from '@/stores/dineInStore.js'
 import { useTakeoutStore }     from '@/stores/takeoutStore.js'
-import { useDeliveryStore }    from '@/stores/deliveryStore.js'
 import { useMiscStore }        from '@/stores/miscStore.js'
 import { useBusinessHoursStore } from '@/stores/businessHoursStore.js'
 import { useStoreSettingsStore } from '@/stores/storeSettingsStore.js'
+import { useUsageStore }       from '@/stores/usageStore.js'
 
 const LS_KEY      = 'visionpos_auth'
 const SESSION_TTL = 12 * 60 * 60 * 1000  // 12 小時
@@ -108,10 +108,10 @@ export const useAuthStore = defineStore('auth', () => {
     useMemberStore().reset()
     useDineInStore().reset()
     useTakeoutStore().reset()
-    useDeliveryStore().reset()
     useMiscStore().reset()
     useBusinessHoursStore().reset()
     useStoreSettingsStore().reset()
+    useUsageStore().reset()
 
     store.value = null
     user.value  = null

@@ -211,7 +211,7 @@
                   <div class="mm__order-header">
                     <span class="mm__order-date">{{ fmtDateTime(o.completed_at) }}</span>
                     <span class="mm__order-type-badge" :class="`mm__order-type-badge--${o.orderType}`">
-                      {{ o.orderType === 'takeout' ? '外帶' : '外送' }}
+                      外帶
                     </span>
                     <span class="mm__order-total">${{ o.total }}</span>
                   </div>
@@ -644,7 +644,6 @@ function fmtDateTime(iso) {
 .mm__order-total { font-size: 14px; font-weight: 700; color: var(--color-text-primary); }
 .mm__order-type-badge { font-size: 11px; padding: 1px 7px; border-radius: 999px; font-weight: 500; }
 .mm__order-type-badge--takeout  { background: #fde8c0; color: #8a6020; }
-.mm__order-type-badge--delivery { background: #d0f0e0; color: #1a6035; }
 .mm__order-items { display: flex; flex-wrap: wrap; gap: 4px; }
 .mm__order-item  { font-size: 11.5px; color: var(--color-text-secondary); background: #fff; padding: 2px 7px; border-radius: 4px; border: 1px solid #e8e0d0; }
 .mm__order-item--more { color: var(--color-text-muted); }

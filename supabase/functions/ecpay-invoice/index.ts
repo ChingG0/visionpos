@@ -409,7 +409,28 @@ serve(async (req) => {
         }
       }
 
-      return new Response(JSON.stringify({ ok: true, summary }), {
+      // ── 每日資料用量快照 ──────────────────────────────────────────────────
+      // 搭這班既有的每日排程，少一個 cron job 要維護。
+      //
+      // 注意不能塞進上面那個迴圈：那個迴圈只跑「有啟用發票」的店，但用量計費
+      // 是對所有店家的，沒開發票的店也要算。所以這裡獨立呼叫一次
+      // snapshot_store_usage()——不帶參數就是全部店。
+      //
+      // 失敗也不讓整個 check_uploads 掛掉：發票漏傳檢核有法規時效，用量統計
+      // 晚一天沒有任何影響，不該讓後者拖累前者。
+      let usage: Record<string, unknown> = {}
+      try {
+        const { data, error } = await supabase.rpc('snapshot_store_usage', {
+          p_store_id: storeId ?? null,
+        })
+        if (error) throw error
+        usage = { usageSnapshotStores: data }
+      } catch (e) {
+        console.error('[ecpay-invoice] 用量快照失敗', e)
+        usage = { usageSnapshotError: String((e as Error)?.message ?? e) }
+      }
+
+      return new Response(JSON.stringify({ ok: true, summary, ...usage }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       })
     }

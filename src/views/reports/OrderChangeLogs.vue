@@ -156,7 +156,7 @@ function toggle(id) { expanded.value = expanded.value === id ? null : id }
 function fmt(n) { return Math.round(Number(n) || 0).toLocaleString('zh-TW') }
 
 function orderTypeLabel(t) {
-  return { dine_in: '內用', takeout: '外帶', delivery: '外送' }[t] ?? t
+  return { dine_in: '內用', takeout: '外帶' }[t] ?? t
 }
 
 function timeLabel(iso) {
