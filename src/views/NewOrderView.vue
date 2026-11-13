@@ -4,7 +4,7 @@
     <AppSidebar />
 
     <div class="new-order__main">
-      <AppTopbar :show-floor-tabs="false" :title="editOrderId ? '修改訂單' : '新訂單'" />
+      <AppTopbar :show-floor-tabs="false" :title="isEditMode ? '修改訂單' : '新訂單'" />
 
       <div class="new-order__content">
 
@@ -48,7 +48,7 @@
           :table-name="selectedTable?.name ?? ''"
           :customer-name="customerName"
           :customer-phone="customerPhone"
-          :edit-mode="!!editOrderId"
+          :edit-mode="isEditMode"
           @increase="increaseQty"
           @decrease="decreaseQty"
           @remove="removeItem"
@@ -312,18 +312,21 @@ const router = useRouter()
 const CART_KEY = 'visionpos:cart'
 
 /* ── 修改既有訂單模式 ──────────────────────────────────────────────────────
-   從內用頁的「修改訂單」進來時，網址會帶 editOrderId。這個模式下：
+   從內用頁的「修改訂單」進來時網址帶 editOrderId，從外帶頁進來則帶 editTakeoutId。
+   兩者行為一樣，只是讀寫的資料表與返回的頁面不同：
    ① 進頁面時把那張訂單的品項/標籤/備註/加價/折扣載進購物車
-   ② 右下角按鈕從「結帳」變成「儲存修改」，存檔後直接回內用頁，不會產生新訂單、不收款
+   ② 右下角按鈕從「結帳」變成「儲存修改」，存檔後直接回原本那一頁，不產生新訂單、不收款
    ③ 不寫入 sessionStorage 購物車草稿（避免污染下一張新訂單） */
-const editOrderId   = ref(route.query.editOrderId ?? null)
-const originalItems = ref([])   // 存檔時用來算庫存差額
-const savingEdit    = ref(false)
+const editOrderId    = ref(route.query.editOrderId ?? null)     // 內用
+const editTakeoutId  = ref(route.query.editTakeoutId ?? null)   // 外帶
+const isEditMode     = computed(() => !!editOrderId.value || !!editTakeoutId.value)
+const originalItems  = ref([])   // 存檔時用來算庫存差額
+const savingEdit     = ref(false)
 
 onMounted(async () => {
   /* 還原上次未送出的購物車（修改模式不還原，要載入的是那張既有訂單）*/
   const saved = sessionStorage.getItem(CART_KEY)
-  if (saved && !route.query.seatId && !editOrderId.value) {
+  if (saved && !route.query.seatId && !isEditMode.value) {
     try {
       const d = JSON.parse(saved)
       if (d.items?.length) {
@@ -346,6 +349,14 @@ onMounted(async () => {
     selectedTable.value = { id: route.query.seatId, name: route.query.seatName }
   }
 
+  /* 從外帶頁「加單」跳轉過來：同一位客人再開一張新單，把姓名電話帶進來免得重打。
+   * 這是新訂單不是修改，所以會有自己的取單號，跟原本那張分開結帳、分開取餐。 */
+  if (route.query.takeoutName || route.query.takeoutPhone) {
+    orderType.value     = 'takeout'
+    customerName.value  = route.query.takeoutName  ?? ''
+    customerPhone.value = route.query.takeoutPhone ?? ''
+  }
+
   await menuStore.init()
   await tagStore.init()
 
@@ -353,7 +364,27 @@ onMounted(async () => {
     activeCategoryId.value = menuStore.categories[0].id
   }
 
-  /* 修改模式：把既有訂單的內容載進購物車 */
+  /* 修改模式（外帶）：從 takeoutStore 載入那張訂單 */
+  if (editTakeoutId.value) {
+    await takeoutStore.init()
+    const order = takeoutStore.orders.find(o => String(o.id) === String(editTakeoutId.value))
+    if (order) {
+      orderType.value      = 'takeout'
+      cartItems.value      = (order.items ?? []).map(l => ({ ...l }))
+      originalItems.value  = (order.items ?? []).map(l => ({ ...l }))
+      selectedTagIds.value = (order.tags ?? []).map(t => t.id)
+      note.value           = order.note      ?? ''
+      surcharge.value      = order.surcharge ?? null
+      discount.value       = order.discount  ?? null
+      customerName.value   = order.customerName  ?? ''
+      customerPhone.value  = order.customerPhone ?? ''
+    } else {
+      alert('找不到這張訂單，可能已經取餐或取消。')
+      router.replace({ name: 'Takeout' })
+    }
+  }
+
+  /* 修改模式（內用）：把既有訂單的內容載進購物車 */
   if (editOrderId.value) {
     await dineInStore.init()
     const order = dineInStore
@@ -377,7 +408,7 @@ onMounted(async () => {
 watch(
   [cartItems, orderType, selectedTable, selectedTagIds, note, surcharge, discount, customerName, customerPhone],
   () => {
-    if (editOrderId.value) return   // 修改既有訂單時不寫草稿，避免污染下一張新訂單
+    if (isEditMode.value) return   // 修改既有訂單時不寫草稿，避免污染下一張新訂單
     if (!cartItems.value.length) { sessionStorage.removeItem(CART_KEY); return }
     sessionStorage.setItem(CART_KEY, JSON.stringify({
       items:         cartItems.value,
@@ -437,15 +468,14 @@ const isProcessingPayment = ref(false)
 
 function handleCharge() {
   if (cartItems.value.length === 0) return
-  if (editOrderId.value) { saveEditedOrder(); return }
+  if (editTakeoutId.value) { saveEditedTakeout(); return }
+  if (editOrderId.value)   { saveEditedOrder();   return }
   if (orderType.value === 'dine-in' && !selectedTable.value) { openTablePicker(); return }
   showPaymentModal.value = true
 }
 
-/* ── 儲存修改後的訂單 ────────────────────────────────────────────────────
-   只更新訂單內容，不碰付款欄位、不重新開發票、不重印收據（要補印可在訂單彈窗按列印）。
-   庫存用「差額」處理：比對修改前後每個商品的數量，只把多出/少掉的部分扣回或補回，
-   不會重複扣掉原本已經扣過的量。 */
+/* ── 儲存修改後的訂單（內用）────────────────────────────────────────────
+   只更新訂單內容，不碰付款欄位、不重新開發票、不重印收據（要補印可在訂單彈窗按列印）。*/
 async function saveEditedOrder() {
   if (savingEdit.value) return
   savingEdit.value = true
@@ -461,30 +491,62 @@ async function saveEditedOrder() {
     })
     if (!ok) { alert('儲存失敗，請稍後再試。'); return }
 
-    /* 庫存差額：新數量 − 原數量，只送有變動的品項 */
-    const qtyBefore = {}
-    for (const l of originalItems.value) qtyBefore[l.menuItemId] = (qtyBefore[l.menuItemId] ?? 0) + l.qty
-    const deltaItems = []
-    const seen = new Set()
-    for (const l of cartItems.value) {
-      if (seen.has(l.menuItemId)) continue
-      seen.add(l.menuItemId)
-      const newQty = cartItems.value.filter(x => x.menuItemId === l.menuItemId).reduce((s, x) => s + x.qty, 0)
-      const delta  = newQty - (qtyBefore[l.menuItemId] ?? 0)
-      if (delta !== 0) deltaItems.push({ ...l, qty: delta })
-    }
-    for (const [menuItemId, oldQty] of Object.entries(qtyBefore)) {
-      if (seen.has(menuItemId)) continue
-      const removed = originalItems.value.find(l => l.menuItemId === menuItemId)
-      if (removed) deltaItems.push({ ...removed, qty: -oldQty })   // 整個品項被移除，全數補回庫存
-    }
-    if (deltaItems.length) await inventoryStore.deductByOrder(editOrderId.value, deltaItems)
+    await applyInventoryDelta(editOrderId.value)
 
     clearCart()
     router.replace({ name: 'DineIn' })
   } finally {
     savingEdit.value = false
   }
+}
+
+/* ── 儲存修改後的外帶訂單 ────────────────────────────────────────────────
+   跟內用那支同樣的行為：只更新內容，不碰付款欄位、不重新開發票、不重印收據。 */
+async function saveEditedTakeout() {
+  if (savingEdit.value) return
+  savingEdit.value = true
+  try {
+    const ok = await takeoutStore.updateOrderContent(editTakeoutId.value, {
+      items:     cartItems.value,
+      tags:      selectedTagObjects.value,
+      note:      note.value,
+      surcharge: surcharge.value,
+      discount:  discount.value,
+      subtotal:  subtotal.value,
+      total:     total.value,
+    })
+    if (!ok) { alert('儲存失敗，請稍後再試。'); return }
+
+    await applyInventoryDelta(editTakeoutId.value)
+
+    clearCart()
+    router.replace({ name: 'Takeout' })
+  } finally {
+    savingEdit.value = false
+  }
+}
+
+/* 庫存用「差額」處理：比對修改前後每個商品的數量，只把多出/少掉的部分扣回或補回，
+ * 不會重複扣掉原本已經扣過的量。內用與外帶共用。 */
+async function applyInventoryDelta(orderId) {
+  const qtyBefore = {}
+  for (const l of originalItems.value) qtyBefore[l.menuItemId] = (qtyBefore[l.menuItemId] ?? 0) + l.qty
+
+  const deltaItems = []
+  const seen = new Set()
+  for (const l of cartItems.value) {
+    if (seen.has(l.menuItemId)) continue
+    seen.add(l.menuItemId)
+    const newQty = cartItems.value.filter(x => x.menuItemId === l.menuItemId).reduce((s, x) => s + x.qty, 0)
+    const delta  = newQty - (qtyBefore[l.menuItemId] ?? 0)
+    if (delta !== 0) deltaItems.push({ ...l, qty: delta })
+  }
+  for (const [menuItemId, oldQty] of Object.entries(qtyBefore)) {
+    if (seen.has(menuItemId)) continue
+    const removed = originalItems.value.find(l => l.menuItemId === menuItemId)
+    if (removed) deltaItems.push({ ...removed, qty: -oldQty })   // 整個品項被移除，全數補回庫存
+  }
+  if (deltaItems.length) await inventoryStore.deductByOrder(orderId, deltaItems)
 }
 
 /* ── 把結帳當下的購物車內容整包備份起來 ──────────────────────────────────

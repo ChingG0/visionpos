@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { supabase } from '@/lib/supabase.js'
 import { useAuthStore } from '@/stores/authStore.js'
+import { logOrderChange, summarizeItemsDiff } from '@/lib/orderChangeLog.js'
 
 export const useTakeoutStore = defineStore('takeoutOrders', () => {
   const orders  = ref([])
@@ -11,6 +12,13 @@ export const useTakeoutStore = defineStore('takeoutOrders', () => {
   let   channel = null
 
   function getStoreId() { return useAuthStore().store?.id ?? null }
+
+  /* 異動紀錄要記是誰操作的，跟內用那邊用同一套規則 */
+  function currentStaffLabel() {
+    const u = useAuthStore().user
+    if (!u) return null
+    return u.username ? `${u.name}（${u.username}）` : (u.name ?? null)
+  }
 
   function fromDb(row) {
     return {
@@ -138,6 +146,60 @@ export const useTakeoutStore = defineStore('takeoutOrders', () => {
     return true
   }
 
+  /** 修改訂單內容（品項／標籤／備註／加價／折扣）。
+   *  跟內用的 updateOrderContent same shape——外帶頁的「修改訂單」跳到點餐頁編輯後
+   *  會呼叫這支。只動內容，不碰付款欄位、不重新開發票、不重印收據。 */
+  async function updateOrderContent(id, { items, tags, note, surcharge, discount, subtotal, total }) {
+    const before = orders.value.find(o => o.id === id)
+
+    const { error: err } = await supabase
+      .from('takeout_orders')
+      .update({ items, tags, note, surcharge, discount, subtotal, total })
+      .eq('id', id)
+    if (err) { console.error('[takeoutStore] 修改訂單失敗', err); return false }
+
+    const idx = orders.value.findIndex(o => o.id === id)
+    if (idx >= 0) orders.value[idx] = { ...orders.value[idx], items, tags, note, surcharge, discount, subtotal, total }
+
+    logOrderChange({
+      storeId: getStoreId(), orderType: 'takeout', orderId: id,
+      seatName: before?.pickupNumber != null ? `#${String(before.pickupNumber).padStart(2, '0')}` : null,
+      action: 'edit', staff: currentStaffLabel(),
+      summary: summarizeItemsDiff(before?.items, items),
+      before: before ? { items: before.items, subtotal: before.subtotal, total: before.total } : null,
+      after:  { items, subtotal, total },
+    })
+    return true
+  }
+
+  /** 取消（刪除）一張還沒取餐的外帶訂單。
+   *  跟內用一樣改成 status='cancelled' 而不是真的刪除——報表只抓 'done'，
+   *  所以不會計入營業額，但紀錄留著可追查。 */
+  async function cancelOrder(id, { reason, staff }) {
+    const target = orders.value.find(o => o.id === id)
+
+    const { error: err } = await supabase
+      .from('takeout_orders')
+      .update({
+        status: 'cancelled',
+        completed_at: new Date().toISOString(),
+        note: `[取消] 原因：${reason}　操作：${staff}`,
+      })
+      .eq('id', id)
+    if (err) { console.error('[takeoutStore] 取消訂單失敗', err); return false }
+
+    logOrderChange({
+      storeId: getStoreId(), orderType: 'takeout', orderId: id,
+      seatName: target?.pickupNumber != null ? `#${String(target.pickupNumber).padStart(2, '0')}` : null,
+      action: 'cancel', staff, reason,
+      before: target ? { items: target.items, subtotal: target.subtotal, total: target.total } : null,
+    })
+
+    // 不等 Realtime，直接從本地快取移除
+    orders.value = orders.value.filter(o => o.id !== id)
+    return true
+  }
+
   /** 稍後付款訂單，真正結帳前調整折扣（金額/百分比）；total 由呼叫端算好傳進來。 */
   async function updateOrderDiscount(id, discount, total) {
     const { error: err } = await supabase
@@ -176,6 +238,6 @@ export const useTakeoutStore = defineStore('takeoutOrders', () => {
 
   return {
     orders, loading, error, init, reset, addOrder, completeOrder,
-    updateOrderItems, updateOrderDiscount, markOrderPaid,
+    updateOrderItems, updateOrderContent, cancelOrder, updateOrderDiscount, markOrderPaid,
   }
 })

@@ -57,6 +57,11 @@
                     <path d="M5 7V2h10v5"/><path d="M5 14H2V7h16v7h-3"/><path d="M5 14v4h10v-4"/>
                   </svg>
                 </button>
+                <button class="tk__del-btn" @click="openCancel(order)" title="取消訂單">
+                  <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 5h14"/><path d="M8 5V3h4v2"/><path d="M5 5l1 12h8l1-12"/>
+                  </svg>
+                </button>
               </div>
             </div>
 
@@ -113,10 +118,43 @@
               <div v-if="order.note" class="tk__card-note">📝 {{ order.note }}</div>
             </div>
 
+            <!-- 操作列：跟內用的訂單彈窗對齊（修改訂單 / 加單），刪除在卡片右上角 -->
+            <div class="tk__card-ops">
+              <button class="tk__edit-btn" @click="handleEditOrder(order)">✎ 修改訂單</button>
+              <button class="tk__add-btn"  @click="handleAddOrder(order)">＋ 加單</button>
+            </div>
+
           </div>
         </div>
       </div>
     </div>
+
+    <!-- 取消訂單彈窗：跟內用一樣要填原因並記錄操作人員 -->
+    <Teleport to="body">
+      <div v-if="cancellingOrder" class="tk-confirm-backdrop" @click.self="cancellingOrder = null">
+        <div class="tk-confirm-box">
+          <p class="tk-confirm-title">確認取消這張訂單？</p>
+          <p class="tk-confirm-sub">
+            取單號 #{{ String(cancellingOrder.pickupNumber ?? 0).padStart(2, '0') }}　${{ cancellingOrder.total?.toFixed(0) }}
+          </p>
+          <p class="tk-cancel-hint">取消後不會計入營業額，但紀錄會保留在「點餐紀錄」可追查。</p>
+          <input
+            v-model="cancelReason"
+            class="tk-cancel-input"
+            type="text"
+            placeholder="取消原因（選填）例：客人不取了..."
+            @keyup.enter="doCancel"
+          />
+          <p class="tk-cancel-staff">操作人員：{{ currentStaffLabel }}（自動記錄）</p>
+          <div class="tk-confirm-actions">
+            <button class="tk-confirm-cancel" @click="cancellingOrder = null">返回</button>
+            <button class="tk-confirm-ok tk-confirm-ok--danger" :disabled="cancelling" @click="doCancel">
+              {{ cancelling ? '處理中...' : '確認取消' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- 確認完成彈窗 -->
     <Teleport to="body">
@@ -161,12 +199,13 @@
 
 <script setup>
 import { discountAmountOf, orderDiscountAmount } from '@/lib/orderPayment.js'
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
 import AppTopbar   from '@/components/layout/AppTopbar.vue'
 import { useTakeoutStore } from '@/stores/takeoutStore.js'
 import { useMemberStore }  from '@/stores/memberStore.js'
+import { useAuthStore }    from '@/stores/authStore.js'
 import { TAG_COLOR_MAP }   from '@/constants/tagColors.js'
 import { printOrderReceipt } from '@/lib/printer.js'
 import PaymentModal        from '@/components/order/PaymentModal.vue'
@@ -175,6 +214,7 @@ const route  = useRoute()
 const router = useRouter()
 const takeoutStore = useTakeoutStore()
 const memberStore  = useMemberStore()
+const authStore    = useAuthStore()
 
 /* 從工作站「結帳」按鈕跳轉過來：網址帶 openOrderId。
  * 只有「稍後付款」還沒收錢的單才需要跳出收款視窗，已經付過款的（只是還沒取餐）
@@ -191,6 +231,58 @@ onMounted(async () => {
   }
   router.replace({ name: 'Takeout' })
 })
+
+/* ── 修改訂單 ─────────────────────────────────────────────────────────────
+   跟內用一樣，帶著訂單 id 跳到點餐頁的修改模式。在那邊改完品項/標籤/備註/折扣
+   存檔後回到這一頁，不會產生新訂單、不重新收款、不重開發票。 */
+function handleEditOrder(order) {
+  router.push({ name: 'NewOrder', query: { editTakeoutId: order.id } })
+}
+
+/* ── 加單 ────────────────────────────────────────────────────────────────
+   內用的「加單」是在同一桌開另一張獨立訂單。外帶的訂單本來就各自獨立，所以
+   這裡的意義是「同一位客人再開一張新單」——把取餐人姓名與電話帶過去，店員不用
+   重打。新單會有自己的取單號，跟原本那張分開結帳、分開取餐。 */
+function handleAddOrder(order) {
+  router.push({
+    name: 'NewOrder',
+    query: {
+      takeoutName:  order.customerName  ?? '',
+      takeoutPhone: order.customerPhone ?? '',
+    },
+  })
+}
+
+/* ── 取消訂單 ────────────────────────────────────────────────────────────
+   跟內用一致：改成 status='cancelled' 而不是真的刪掉。報表只抓 'done'，
+   所以不會計入營業額，但紀錄留著可以在「點餐紀錄」追查是誰、什麼原因取消的。 */
+const cancellingOrder = ref(null)
+const cancelReason    = ref('')
+const cancelling      = ref(false)
+
+const currentStaffLabel = computed(() => {
+  const u = authStore.user
+  if (!u) return '未知'
+  return u.username ? `${u.name}（${u.username}）` : (u.name ?? '未知')
+})
+
+function openCancel(order) {
+  cancellingOrder.value = order
+  cancelReason.value    = ''
+}
+
+async function doCancel() {
+  if (!cancellingOrder.value || cancelling.value) return
+  cancelling.value = true
+  const ok = await takeoutStore.cancelOrder(cancellingOrder.value.id, {
+    reason: cancelReason.value.trim() || '未填寫',
+    staff:  currentStaffLabel.value,
+  })
+  cancelling.value = false
+  if (!ok) { alert('取消失敗，請稍後再試。'); return }
+  cancellingOrder.value = null
+  cancelReason.value    = ''
+}
 
 /* ── 稍後付款：判斷 + 結帳收款（折扣在 PaymentModal 收款畫面裡直接調整）── */
 function isUnpaid(order) {
@@ -435,7 +527,9 @@ function formatOrderId(order) {
 .tk__grid--compact {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  grid-auto-rows: 300px;
+  /* 350 而不是原本的 300：卡片底部多了「修改訂單／加單」一列，高度不跟著加的話
+     會直接從品項清單挖空間（實測只剩 28px，等於看不到品項）。 */
+  grid-auto-rows: 350px;
   gap: 12px;
 }
 
@@ -758,4 +852,27 @@ function formatOrderId(order) {
 
 .tk-confirm-ok:hover:not(:disabled) { background: #2a6a2a; }
 .tk-confirm-ok:disabled { opacity: 0.6; }
+
+/* 卡片操作列：修改訂單 / 加單 */
+/* 卡片高度固定，這一列每多 1px 就少 1px 品項空間，所以盡量壓扁 */
+.tk__card-ops { display: flex; gap: 6px; padding: 6px 12px 10px; }
+.tk__edit-btn { flex: 1; padding: 6px 4px; border-radius: 8px; font-size: 12px; color: #8a6020; background: #fde8c0; border: 1px solid #e8c888; white-space: nowrap; }
+.tk__edit-btn:hover { background: #f8dca0; }
+.tk__add-btn  { flex: 1; padding: 6px 4px; border-radius: 8px; font-size: 12px; color: #7a6850; background: #f0e8d8; border: 1px solid #c8b89a; white-space: nowrap; }
+.tk__add-btn:hover { background: #e8dcc8; }
+.tk__del-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 8px;
+  color: #c0392b; background: #fdeceb; border: 1px solid #f0c8c4; flex-shrink: 0;
+}
+.tk__del-btn:hover { background: #f9dedb; }
+
+/* 取消訂單彈窗（沿用 tk-confirm 的底色與尺寸） */
+.tk-confirm-sub    { font-size: 13px; color: var(--color-text-secondary); text-align: center; margin-top: 4px; }
+.tk-cancel-hint    { font-size: 11.5px; color: var(--color-text-muted); line-height: 1.7; margin: 10px 0 12px; }
+.tk-cancel-input   { width: 100%; padding: 8px 10px; border: 1.5px solid #c8b89a; border-radius: 8px; background: #faf5ec; font-size: 13.5px; outline: none; }
+.tk-cancel-input:focus { border-color: #e8a038; }
+.tk-cancel-staff   { font-size: 11.5px; color: var(--color-text-muted); margin-top: 8px; }
+.tk-confirm-ok--danger { background: #c0392b; }
+.tk-confirm-ok--danger:hover:not(:disabled) { background: #a5342a; }
 </style>
