@@ -285,15 +285,6 @@ const IconLinePay = defineComponent({
   ])
 })
 
-/* 方案與用量：半圓儀表 */
-const IconPlanUsage = defineComponent({
-  render: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
-    h('path', { d: 'M3.5 17a9 9 0 1117 0' }),
-    h('path', { d: 'M12 17l4.2-4.6' }),
-    h('circle', { cx: '12', cy: '17', r: '1.4' }),
-  ])
-})
-
 /* 店家資訊：店面＋時鐘 */
 const IconStoreInfo = defineComponent({
   render: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
@@ -316,7 +307,6 @@ const ALL_NAV_ITEMS = [
   { id: 'InvoiceSettings',   label: '電子發票',   icon: IconInvoice,       roles: ['owner', 'manager', 'superadmin'] },
   { id: 'PaymentSettings', label: '付款設定', icon: IconLinePay, roles: ['owner', 'manager', 'superadmin'] },
   { id: 'StoreInfo',       label: '店家資訊', icon: IconStoreInfo, roles: ['owner', 'manager', 'superadmin'] },
-  { id: 'PlanUsage',       label: '方案與用量', icon: IconPlanUsage, roles: ['owner', 'manager', 'superadmin', 'cashier'] },
 ]
 
 const otherNavItems = computed(() => {

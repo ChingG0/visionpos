@@ -17,7 +17,6 @@ import DeviceManagementView  from '@/views/DeviceManagementView.vue'
 import StaffManagementView   from '@/views/StaffManagementView.vue'
 import InvoiceSettingsView   from '@/views/InvoiceSettingsView.vue'
 import PaymentSettingsView       from '@/views/PaymentSettingsView.vue'
-import PlanUsageView             from '@/views/PlanUsageView.vue'
 import ApplyView                from '@/views/ApplyView.vue'
 
 // cashier 不能進入的頁面
@@ -56,7 +55,6 @@ const routes = [
       { path: 'settings/invoice',   name: 'InvoiceSettings',   component: InvoiceSettingsView },
       { path: 'settings/payment',   name: 'PaymentSettings',   component: PaymentSettingsView },
       { path: 'settings/store',     name: 'StoreInfo',         component: StoreInfoView },
-      { path: 'settings/plan',      name: 'PlanUsage',         component: PlanUsageView },
     ],
   },
 

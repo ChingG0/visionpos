@@ -41,24 +41,6 @@
         <button v-if="authStore.canCloseout" class="topbar__closeout-btn" @click="shiftKind = 'closeout'">關帳</button>
       </div>
 
-      <!-- 資料用量提示：80% 以上才出現。可以關掉一天，到量之後不給關。
-           全角色可見——老闆不在時，店員看到才能先提醒。 -->
-      <button
-        v-if="usage.showTopbarHint"
-        class="topbar__usage"
-        :class="{ 'topbar__usage--full': usage.percent >= 100 }"
-        :title="usage.percent >= 100 ? '已達免費額度上限，點擊查看' : '資料用量即將達上限，點擊查看'"
-        @click="goPlanUsage"
-      >
-        資料用量 {{ usage.percent }}%
-        <span
-          v-if="usage.canDismiss"
-          class="topbar__usage-x"
-          title="今天不再提醒"
-          @click.stop="usage.dismissToday()"
-        >×</span>
-      </button>
-
       <!-- Status Pill -->
       <div class="topbar__status-pill">
       <button
@@ -117,25 +99,11 @@ import { checkPrinterStatus, openCashDrawer } from '@/lib/printer.js'
 import PrinterSettingsModal from './PrinterSettingsModal.vue'
 import ShiftModal           from './ShiftModal.vue'
 import { useAuthStore } from '@/stores/authStore.js'
-import { useUsageStore } from '@/stores/usageStore.js'
 
 const router    = useRouter()
 const authStore = useAuthStore()
 
 const ROLE_LABELS = { owner: '老闆', manager: '主管', cashier: '收銀員' }
-
-/* ── 資料用量 ─────────────────────────────────────────────────────────────
-   用量一天只更新一次，這裡吃快取（init 不帶 force），切頁不會重複查。 */
-const usage = useUsageStore()
-onMounted(() => {
-  if (!authStore.isLoggedIn) return
-  usage.loadDismissed()
-  usage.init()
-})
-
-function goPlanUsage() {
-  router.push({ name: 'PlanUsage', params: { storeCode: authStore.store?.code } })
-}
 
 function handleLogout() {
   authStore.logout()
@@ -281,20 +249,6 @@ const formattedDateTime = computed(() => {
   align-items: center;
   gap: 10px;
 }
-
-.topbar__usage {
-  display: flex; align-items: center; gap: 6px;
-  font-size: 11.5px; font-weight: 600; padding: 5px 8px 5px 10px;
-  border-radius: 999px; cursor: pointer;
-  background: #fdf1de; color: #8a5a10; border: 1px solid #ecd6ac;
-}
-.topbar__usage:hover { background: #f8e6c8; }
-.topbar__usage--full { background: #fdeceb; color: #a5342a; border-color: #f0c8c4; }
-.topbar__usage--full:hover { background: #f9dedb; }
-.topbar__usage-x {
-  font-size: 14px; line-height: 1; opacity: 0.55; padding: 0 2px;
-}
-.topbar__usage-x:hover { opacity: 1; }
 
 .topbar__status-pill {
   background: var(--color-bg-status-pill);

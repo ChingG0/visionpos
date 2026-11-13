@@ -1,3 +1,18 @@
+<!--
+  ⚠️ 目前沒有任何地方 import 這個檔案，這是刻意的，不是死碼。
+
+  2026-11-13：方案與用量對店家全部隱藏（還沒開始收費，連達量都不通知）。
+  做法是拿掉所有 import 而不是加開關——dist bundle 是公開的，只要有人 import
+  就會被打包，裡面的價目表（月 300／半年 1200／年 2000）檢視原始碼就看得到。
+  沒人 import 的模組 Vite 不會打包，所以檔案留著是乾淨的。
+
+  要恢復：router/index.js 補回 import 與 settings/plan 路由，
+  SettingsSidebar.vue 補回 PlanUsage 那筆 nav item 與 IconPlanUsage，
+  AppTopbar.vue 補回用量提示 chip。git log 有完整的移除 commit。
+
+  注意：這次只動前端。DB 權限沒收，`store_usage_current` 用 public key 仍讀得到，
+  所以這是「店家介面上看不到」，不是「查不到」。
+-->
 <template>
   <div class="pu">
     <SettingsSidebar />
