@@ -56,7 +56,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useMenuStore }        from '@/stores/menuStore.js'
 import { useReservationStore } from '@/stores/reservationStore.js'
 import { useMemberStore }      from '@/stores/memberStore.js'
@@ -91,33 +91,57 @@ const isLoading = computed(() =>
 const showBootCheckBanner = ref(false)
 const bootCheckFailDetail = ref('')
 
+/* 登入後才需要的初始化。
+ *
+ * 這段原本只寫在 onMounted 的 if (isLoggedIn) 裡，等於「App 掛載當下已經登入」
+ * 才會跑。但 session 有 12 小時 TTL，過期後重開 App 會先導到登入頁——那時
+ * isLoggedIn 是 false，整段被跳過；使用者登入後 LoginView 只做 router.replace，
+ * 不會重新觸發 onMounted，所以這些初始化就再也不會執行。
+ *
+ * 實際災情：
+ *   · storeSettingsStore 沒載 → marketPriceEnabled 是 false → 時價按鈕不出現
+ *     （菜單卻正常，因為 NewOrderView 自己有呼叫 menuStore.init()，所以只有
+ *      時價按鈕壞掉，很難聯想到是初始化沒跑）
+ *   · tagStore 沒載 → 快速標籤消失
+ *   · startHeartbeat 沒跑 → 這台裝置的心跳永遠不會送出，後台看到的是離線
+ *
+ * 各 store 的 init() 內部都有 loaded 防護，重複呼叫不會重查，所以掛 watch 是安全的。
+ */
+function initAfterLogin() {
+  menuStore.init()
+  reservationStore.init()
+  memberStore.init()
+  tagStore.init()
+  takeoutStore.init()
+  // 付款方式/發票啟用狀態先載好，結帳畫面才不會等查詢回來才把按鈕補上
+  storeSettingsStore.init()
+  startHeartbeat()
+
+  // 電子發票開機檢核：對時、賣方統編、加值中心憑證、發票字軌延續性，
+  // 每次系統開啟（App 掛載）都自動跑一次，異常才跳警示，不影響正常操作流程
+  runBootCheck().then(result => {
+    if (result && !result.ok) {
+      const failed = result.items.filter(i => !i.ok).map(i => `${i.label}：${i.detail}`).join('；')
+      bootCheckFailDetail.value = failed
+      showBootCheckBanner.value = true
+    }
+  }).catch(e => {
+    console.warn('[App] 電子發票開機檢核執行失敗', e)
+  })
+}
+
 onMounted(() => {
   authStore.restore()
   logoSrc.value = getPrinterLogo()
   startVersionCheck()  // 不論有沒有登入都要檢查，登入畫面停在舊版本一樣要更新
 
-  if (authStore.isLoggedIn) {
-    menuStore.init()
-    reservationStore.init()
-    memberStore.init()
-    tagStore.init()
-    takeoutStore.init()
-    // 付款方式/發票啟用狀態先載好，結帳畫面才不會等查詢回來才把按鈕補上
-    storeSettingsStore.init()
-    startHeartbeat()  // 登入後才開始 heartbeat
+  if (authStore.isLoggedIn) initAfterLogin()
+})
 
-    // 電子發票開機檢核：對時、賣方統編、加值中心憑證、發票字軌延續性，
-    // 每次系統開啟（App 掛載）都自動跑一次，異常才跳警示，不影響正常操作流程
-    runBootCheck().then(result => {
-      if (result && !result.ok) {
-        const failed = result.items.filter(i => !i.ok).map(i => `${i.label}：${i.detail}`).join('；')
-        bootCheckFailDetail.value = failed
-        showBootCheckBanner.value = true
-      }
-    }).catch(e => {
-      console.warn('[App] 電子發票開機檢核執行失敗', e)
-    })
-  }
+/* 從「未登入」變成「已登入」時補跑一次（session 過期後重新登入、或首次登入）。
+ * 只在 false → true 這個方向觸發，登出不做事——登出流程有自己的 reset()。 */
+watch(() => authStore.isLoggedIn, (loggedIn, was) => {
+  if (loggedIn && !was) initAfterLogin()
 })
 </script>
 
