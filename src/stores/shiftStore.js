@@ -18,6 +18,23 @@ import { isUnpaidOrder, paymentLabel } from '@/lib/orderPayment.js'
 export const useShiftStore = defineStore('shifts', () => {
   const loading = ref(false)
 
+  /* 上次關帳的結束時間，快取成 ref 讓畫面可以直接訂閱。
+   *
+   * 訂位面板要用它當「今天」的下界：跨午夜營業的店，23:30 的訂位在凌晨 00:05
+   * 不該因為日曆換日就消失，要等店家真的關帳才算過去。getPeriodStart() 是一次
+   * DB 查詢，不能每次 render 都打，所以在這裡存一份。
+   *
+   * null 本身是合法值（從來沒關過帳），所以另外用 periodLoaded 記有沒有載過。 */
+  const periodStart = ref(null)
+  let   periodLoaded = false
+
+  async function loadPeriodStart(force = false) {
+    if (periodLoaded && !force) return periodStart.value
+    periodStart.value = await getPeriodStart()
+    periodLoaded = true
+    return periodStart.value
+  }
+
   function getStoreId() { return useAuthStore().store?.id ?? null }
 
   /** 目前這個累計期間的起點：上一次關帳的結束時間；從來沒關過帳就回 null（代表全部） */
@@ -124,6 +141,9 @@ export const useShiftStore = defineStore('shifts', () => {
       note:              note || null,
     })
     if (error) { console.error('[shiftStore] 寫入交班紀錄失敗', error); return false }
+    // 關帳會把期間結束掉，切點要立刻更新，訂位面板才會同步把已過期的訂位收走。
+    // 交班不重置期間，所以不碰（同一個關帳期間內可以交很多次班）。
+    if (kind === 'closeout') await loadPeriodStart(true)
     return true
   }
 
@@ -144,5 +164,5 @@ export const useShiftStore = defineStore('shifts', () => {
     return data ?? []
   }
 
-  return { loading, getPeriodStart, calculateSummary, saveRecord, fetchRecords }
+  return { loading, periodStart, loadPeriodStart, getPeriodStart, calculateSummary, saveRecord, fetchRecords }
 })

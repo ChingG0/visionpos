@@ -96,6 +96,7 @@
 <script setup>
 import { ref, reactive } from 'vue'
 import { useMemberStore } from '@/stores/memberStore.js'
+import { todayLocal, reservationUrgency } from '@/lib/reservationTime.js'
 
 const emit = defineEmits(['close', 'submit'])
 
@@ -103,9 +104,11 @@ const memberStore = useMemberStore()
 const memberFound = ref(null)   // 找到的會員資料，null 表示未找到
 const errorMsg    = ref('')
 
-/* ── 預設表單值 ── */
+/* ── 預設表單值 ──
+ * 日期一律用本地時區。以前是 toISOString().slice(0,10)，那取的是 UTC 日期，
+ * 台灣凌晨 00:00–08:00 之間會預設成「昨天」。 */
 function todayStr() {
-  return new Date().toISOString().slice(0, 10)
+  return todayLocal()
 }
 
 function defaultTime() {
@@ -145,15 +148,6 @@ function onPhoneInput() {
   }
 }
 
-/* ── 計算訂位急迫度 ── */
-function calcUrgency(date, time) {
-  const target  = new Date(`${date}T${time}`)
-  const diffMin = Math.round((target - Date.now()) / 60000)
-  if (diffMin <= 30)  return { timeLabel: `${Math.max(diffMin, 1)}分鐘後`, urgency: 'red' }
-  if (diffMin <= 90)  return { timeLabel: '1小時後',                       urgency: 'orange' }
-  if (diffMin <= 150) return { timeLabel: '2小時後',                       urgency: 'orange' }
-  return { timeLabel: `${Math.round(diffMin / 60)}小時後`,                 urgency: 'blue' }
-}
 
 /* ── 送出 ── */
 function submit() {
@@ -164,7 +158,9 @@ function submit() {
   if (!form.date)         { errorMsg.value = '請選擇日期'; return }
   if (!form.time)         { errorMsg.value = '請選擇時間'; return }
 
-  const { timeLabel, urgency } = calcUrgency(form.date, form.time)
+  // time_label / urgency 兩個欄位還是照寫（沿用既有 schema），但畫面上不再讀它，
+  // 顯示一律即時重算——存下來的值不會跟著時間走。
+  const { label: timeLabel, urgency } = reservationUrgency(form.date, form.time)
 
   /* 新增到會員名單 */
   memberStore.upsertMember({

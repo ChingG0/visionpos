@@ -89,11 +89,12 @@ import AppSidebar          from '@/components/layout/AppSidebar.vue'
 import AppTopbar            from '@/components/layout/AppTopbar.vue'
 import ReservationForm      from '@/components/reservation/ReservationForm.vue'
 import { useReservationStore } from '@/stores/reservationStore.js'
+import { todayLocal, reservationDateTime } from '@/lib/reservationTime.js'
 
 const store = useReservationStore()
 onMounted(() => store.init())
 
-const todayStr    = new Date().toISOString().slice(0, 10)
+const todayStr    = todayLocal()   // 本地日期，不能用 toISOString（那是 UTC）
 const selectedDate = ref(todayStr)
 const activeTab    = ref('all')
 const showForm     = ref(false)
@@ -105,8 +106,11 @@ onUnmounted(() => clearInterval(timer))
 
 /* 計算距離預約時間還有多久（或已超過多久）*/
 function timeUntil(dateStr, timeStr) {
-  if (!dateStr || !timeStr) return ''
-  const target = new Date(`${dateStr}T${timeStr.length === 5 ? timeStr : timeStr + ':00'}`)
+  // 以前這裡自己組 Date，而且三元判斷寫反了——時間欄位是 "18:30:00"（8 碼）時
+  // 還去補 ":00"，變成 "18:30:00:00" 直接 NaN，畫面會顯示「已超過 NaN 分鐘」。
+  // 改用共用的解析，5 碼與 8 碼兩種格式都吃。
+  const target = reservationDateTime(dateStr, timeStr)
+  if (!target) return ''
   const diff   = target.getTime() - now.value
   if (diff > 0) {
     const h = Math.floor(diff / 3600000)
@@ -122,7 +126,8 @@ function timeUntil(dateStr, timeStr) {
 }
 
 function urgencyClass(dateStr, timeStr) {
-  const target = new Date(`${dateStr}T${timeStr}`)
+  const target = reservationDateTime(dateStr, timeStr)
+  if (!target) return 'rv__status-badge--waiting'
   const diff   = target.getTime() - now.value
   if (diff < 0) return 'rv__status-badge--overdue'
   if (diff < 30 * 60000) return 'rv__status-badge--soon'
@@ -171,7 +176,9 @@ function fmtTime(ts) {
 }
 
 function handleFormSubmit(data) {
-  store.addReservation({ ...data, date: selectedDate.value })
+  store.addReservation({ ...data, date: selectedDate.value }).then(ok => {
+    if (!ok) alert('訂位沒有存到伺服器，請確認網路後重新輸入一次。')
+  })
   showForm.value = false
 }
 </script>

@@ -2,7 +2,7 @@
   <article
     class="rc"
     :class="[
-      !isGray && `rc--${reservation.urgency}`,
+      !isGray && `rc--${live.urgency}`,
       isGray && 'rc--gray',
     ]"
   >
@@ -58,6 +58,7 @@
 
 <script setup>
 import { ref, computed, watch, onUnmounted } from 'vue'
+import { reservationUrgency } from '@/lib/reservationTime.js'
 
 const props = defineProps({
   reservation: { type: Object, required: true },
@@ -71,16 +72,30 @@ const isSeated    = computed(() => props.reservation.status === 'seated')
 const isCancelled = computed(() => props.reservation.status === 'cancelled')
 const isGray      = computed(() => isSeated.value || isCancelled.value)
 
-/* ── Badge ── */
+/* ── Badge ──
+ * 以前這裡直接顯示 reservation.timeLabel / urgency，而那兩個欄位是「建立訂位
+ * 的當下」算一次就寫進資料庫的，之後永遠不更新——所以畫面上會出現「216小時後」
+ * 這種建立當時的化石數字，而且跟預約管理頁即時重算的倒數對不起來（同一筆訂位
+ * 在兩個地方顯示不同的字）。現在兩邊都即時算。
+ *
+ * 資料庫的 time_label / urgency 欄位還是照寫，只是不再拿來顯示。 */
+const nowMs = ref(Date.now())
+const nowTimer = setInterval(() => { nowMs.value = Date.now() }, 30000)
+onUnmounted(() => clearInterval(nowTimer))
+
+const live = computed(() =>
+  reservationUrgency(props.reservation.date, props.reservation.time, nowMs.value)
+)
+
 const badgeLabel = computed(() => {
   if (isCancelled.value) return '已取消'
   if (isSeated.value)    return '用餐中'
-  return props.reservation.timeLabel
+  return live.value.label
 })
 
 const badgeType = computed(() => {
   if (isCancelled.value || isSeated.value) return 'gray'
-  return props.reservation.urgency
+  return live.value.urgency
 })
 
 /* ── Elapsed timer ── */

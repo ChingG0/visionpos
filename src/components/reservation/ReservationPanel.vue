@@ -24,7 +24,7 @@
       <!-- Reservation List -->
       <div class="res-panel__list">
         <ReservationCard
-          v-for="item in store.reservations.filter(r => r.status === 'waiting')"
+          v-for="item in todayWaiting"
           :key="item.id"
           :reservation="item"
           @cancel="store.cancelReservation($event)"
@@ -45,10 +45,12 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import ReservationCard from './ReservationCard.vue'
 import ReservationForm from './ReservationForm.vue'
 import { useReservationStore } from '@/stores/reservationStore.js'
+import { localDateOf, showsInTodayPanel } from '@/lib/reservationTime.js'
+import { useShiftStore } from '@/stores/shiftStore.js'
 
 defineProps({
   arrangingId: { type: Number, default: null },
@@ -59,9 +61,35 @@ const emit = defineEmits(['request-arrange', 'cancel-arrange', 'add'])
 const store   = useReservationStore()
 const showForm = ref(false)
 
-function handleFormSubmit(data) {
-  store.addReservation(data)
+/* 這個面板叫「今日訂位」，但「今天」不是日曆上的今天。
+ *
+ * 以前只依狀態篩沒篩日期，是因為 store 本來就只載入今天的訂位，日期過濾等於
+ * 內建在查詢裡。現在 store 連未來日期一起載（修「訂位會消失」的問題），這裡
+ * 不篩的話下個月的訂位會全部擠進來。
+ *
+ * 切點跟著店家的開帳／關帳走，不是午夜——規則寫在 showsInTodayPanel。
+ * nowMs 每 30 秒跳一次，讓「時間到了沒」和「換日了沒」都能自己更新，iPad
+ * 整天不重開也不會停在昨天。 */
+const shiftStore = useShiftStore()
+shiftStore.loadPeriodStart()
+
+const nowMs = ref(Date.now())
+const nowTimer = setInterval(() => { nowMs.value = Date.now() }, 30000)
+onUnmounted(() => clearInterval(nowTimer))
+
+const todayWaiting = computed(() => {
+  const now = nowMs.value
+  const todayStr = localDateOf(new Date(now))
+  const closeoutMs = shiftStore.periodStart
+    ? new Date(shiftStore.periodStart).getTime()
+    : null
+  return store.reservations.filter(r => showsInTodayPanel(r, now, todayStr, closeoutMs))
+})
+
+async function handleFormSubmit(data) {
   showForm.value = false
+  const ok = await store.addReservation(data)
+  if (!ok) alert('訂位沒有存到伺服器，請確認網路後重新輸入一次。')
 }
 
 /* 由 DineInView 呼叫 */
